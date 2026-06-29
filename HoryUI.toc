@@ -2,8 +2,9 @@
 ## Title: HoryUI
 ## Notes: Minimal premium rogue HUD for WoW 1.12 (Garnet)
 ## Author: Horyoshi
-## Version: 0.1.0
-## SavedVariables: HoryUIDB
+## Version: 0.2.0
+## SavedVariables: HoryUIDB, BongosProfiles
+## SavedVariablesPerCharacter: BongosSets, BActionSets, BStanceSets, BContextSets
 
 core\init.lua
 core\modulesystem.lua
@@ -25,6 +26,7 @@ modules\auras.lua
 modules\rangetracker.lua
 modules\party.lua
 modules\raid.lua
+modules\raiddrag.lua
 modules\weaponpoison.lua
 modules\chat.lua
 modules\config.lua
@@ -34,6 +36,42 @@ modules\bags.lua
 modules\character.lua
 modules\outfitter.lua
 modules\tooltip.lua
+
+# --- vendored Bongos action bar engine (standalone; dormant while the standalone
+# Bongos addon is enabled -- see bongos\gate.lua). Order mirrors Bongos.toc:
+# gate first, then libs -> core -> actionbar subsystem. The Garnet right-click menu
+# (bongos\menu.lua) and the Actionbars settings tab replace Bongos's own options UI;
+# its menu.xml / options/ / slash.lua were intentionally dropped (not vendored).
+bongos\gate.lua
+bongos\lib\TLib.lua
+bongos\lib\BEvent.lua
+bongos\lib\Infield.lua
+bongos\lib\FlyPaper.lua
+bongos\localization.lua
+bongos\utility.lua
+bongos\menu.lua
+bongos\bar.lua
+bongos\profiles.lua
+bongos\main.lua
+bongos\actionbar\localization.lua
+bongos\actionbar\lib\IsBuffActive.lua
+bongos\actionbar\core\unreg.lua
+bongos\actionbar\core\utility.lua
+bongos\actionbar\core\button.lua
+bongos\actionbar\main.lua
+bongos\actionbar\bagBar\bar.lua
+bongos\actionbar\keyBar\bar.lua
+bongos\actionbar\classBar\button.lua
+bongos\actionbar\classBar\bar.lua
+bongos\actionbar\menuBar\bar.lua
+bongos\actionbar\petBar\button.lua
+bongos\actionbar\petBar\bar.lua
+bongos\actionbar\actionBar\button.lua
+bongos\actionbar\actionBar\bar.lua
+bongos\actionbar\actionBar\stance.lua
+bongos\actionbar\actionBar\context.lua
+bongos\actionbar\actionBar\main.lua
+bongos\actionbar\hoverbind.lua
 
 # --- vendored pfUI skin engine (standalone; dormant while pfUI is enabled) ---
 # A near-verbatim copy of pfUI's skin subsystem, renamed pfUI -> pfSkin. See

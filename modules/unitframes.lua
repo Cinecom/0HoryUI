@@ -277,6 +277,15 @@ HoryUI:RegisterModule("unitframes", true, function()
     player.energy:SetMinMaxValues(0, max)
     player.energy:SetValue(cur)
     player.eval:SetText(cur)
+    -- colour the bar by the player's ACTUAL power type: rogue = energy (gold),
+    -- but a druid in bear form reads rage (red), caster forms mana (blue), etc.
+    local pc = HoryUI.PowerColor("player")
+    player.energy:SetStatusBarColor(pc[1], pc[2], pc[3], 1)
+    if player.energy.bg then player.energy.bg:SetVertexColor(pc[1], pc[2], pc[3], 0.16) end
+    -- the regen-tick predictor is energy-only; hide it for mana/rage power types
+    if player.tickline then
+      if UnitPowerType("player") == 3 then player.tickline:Show() else player.tickline:Hide() end
+    end
   end
 
   -- Energy ticks every ~2.0s (Turtle's Blade Rush talent shortens it, agility-
@@ -317,6 +326,8 @@ HoryUI:RegisterModule("unitframes", true, function()
   player:RegisterEvent("UNIT_MAXHEALTH")
   player:RegisterEvent("UNIT_ENERGY")
   player:RegisterEvent("UNIT_MANA")
+  player:RegisterEvent("UNIT_RAGE")
+  player:RegisterEvent("UNIT_FOCUS")
   player:RegisterEvent("CHAT_MSG_SPELL_SELF_BUFF")
   player:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS")
   player:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -348,23 +359,26 @@ HoryUI:RegisterModule("unitframes", true, function()
       if arg1 == "player" then UpdateHealth(player) end
       return
     end
-    if event == "UNIT_ENERGY" or event == "UNIT_MANA" then
+    if event == "UNIT_ENERGY" or event == "UNIT_MANA" or event == "UNIT_RAGE" or event == "UNIT_FOCUS" then
       if arg1 == "player" then
-        local cur = UnitMana("player")
-        if player.lastEnergy and cur > player.lastEnergy then
-          -- Energy rose. If the combat log just flagged this as proc/talent
-          -- energy, ignore it -- only regen ticks reset the sweep.
-          if player.ignoreNextGain then
-            player.ignoreNextGain = false
-          else
-            -- A genuine regen tick: restart the sweep from the left, synced to the
-            -- moment energy actually arrived. Period stays fixed (TickPeriod), not
-            -- measured -- see the note above TickPeriod.
-            player.tickPeriod = TickPeriod()
-            player.tickStart = GetTime()
+        -- the regen-tick predictor only applies to energy (the rogue's power)
+        if UnitPowerType("player") == 3 then
+          local cur = UnitMana("player")
+          if player.lastEnergy and cur > player.lastEnergy then
+            -- Energy rose. If the combat log just flagged this as proc/talent
+            -- energy, ignore it -- only regen ticks reset the sweep.
+            if player.ignoreNextGain then
+              player.ignoreNextGain = false
+            else
+              -- A genuine regen tick: restart the sweep from the left, synced to the
+              -- moment energy actually arrived. Period stays fixed (TickPeriod), not
+              -- measured -- see the note above TickPeriod.
+              player.tickPeriod = TickPeriod()
+              player.tickStart = GetTime()
+            end
           end
+          player.lastEnergy = cur
         end
-        player.lastEnergy = cur
         UpdateEnergy()
       end
       return

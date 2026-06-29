@@ -167,25 +167,34 @@ HoryUI:RegisterModule("chat", true, function()
     if not copybox then
       copybox = CreateFrame("Frame", "HoryUICopyBox", UIParent)
       copybox:SetWidth(340)
-      copybox:SetHeight(40)
+      copybox:SetHeight(30)
       copybox:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
       copybox:SetFrameStrata("FULLSCREEN_DIALOG")
       copybox:EnableMouse(true)
       HoryUI.CreateBackdrop(copybox)
+      -- close button (right side) — same garnet "x" idiom as every HoryUI window
+      local close = CreateFrame("Button", "HoryUICopyClose", copybox)
+      close:SetPoint("TOPRIGHT", copybox, "TOPRIGHT", -6, -6)
+      HoryUI.SkinCloseButton(close)
+      close:SetScript("OnClick", function() copybox:Hide() end)
       local eb = CreateFrame("EditBox", "HoryUICopyEdit", copybox)
       eb:SetPoint("TOPLEFT", copybox, "TOPLEFT", 6, -6)
-      eb:SetPoint("BOTTOMRIGHT", copybox, "BOTTOMRIGHT", -6, 6)
+      -- leave room for the close button on the right
+      eb:SetPoint("BOTTOMRIGHT", copybox, "BOTTOMRIGHT", -28, 6)
       eb:SetAutoFocus(false)
       eb:SetFont(HoryUI.font.normal, 12, "")
       eb:SetTextColor(1, 1, 1, 1)
       eb:SetScript("OnEscapePressed", function() copybox:Hide() end)
       eb:SetScript("OnEnterPressed", function() copybox:Hide() end)
+      -- always re-select the whole URL whenever the box takes focus
+      eb:SetScript("OnEditFocusGained", function() this:HighlightText() end)
       copybox.eb = eb
     end
     copybox.eb:SetText(txt or "")
+    copybox.eb:Show()
+    copybox:Show()
     copybox.eb:SetFocus()
     copybox.eb:HighlightText()
-    copybox:Show()
   end
 
   local origSetItemRef = SetItemRef
@@ -253,17 +262,27 @@ HoryUI:RegisterModule("chat", true, function()
   local function SkinEditBox(eb)
     if not eb or eb.horySkinned then return end
     eb.horySkinned = true
-    local nm = eb:GetName()
-    if nm then
-      local function strip(suffix)
-        local t = getglobal(nm .. suffix)
-        if t then t:Hide(); t:SetAlpha(0) end
+    -- wipe the default metallic border art. Region names vary, so hide every
+    -- texture region directly (pfUI technique) -- the typed text + cursor are
+    -- drawn by the editbox itself, and the "Say:" header is a FontString, so
+    -- both survive. This is what the name-based strip missed (the leftover art
+    -- on the right of the box).
+    local regions = { eb:GetRegions() }
+    for i = 1, table.getn(regions) do
+      local r = regions[i]
+      if r and r.GetObjectType and r:GetObjectType() == "Texture" then
+        r:SetTexture(nil)
+        r:Hide()
       end
-      strip("Left"); strip("Mid"); strip("Right")     -- default border art
     end
     eb:SetFont(HoryUI.font.normal, 13, "")
     eb:SetTextColor(C.text[1], C.text[2], C.text[3])
     HoryUI.CreateBackdrop(eb)
+    -- garnet outline around the input
+    if eb.backdrop then
+      local a = C.accent
+      eb.backdrop:SetBackdropBorderColor(a[1], a[2], a[3], 1)
+    end
   end
 
   local function IsCombatFrame(frame)
@@ -300,14 +319,54 @@ HoryUI:RegisterModule("chat", true, function()
   end
   local function HyperLeave() GameTooltip:Hide() end
 
-  local function StyleTab(i)
-    local tabText = getglobal("ChatFrame" .. i .. "TabText")
-    if tabText then
-      local _, class = UnitClass("player")
-      local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-      if c then tabText:SetTextColor((c.r + .3) * .5, (c.g + .3) * .5, (c.b + .3) * .5, 1) end
-      HoryUI.SetFont(tabText, HoryUI.font.normal, 12, "OUTLINE")
+  -- Tabs follow the HoryUI nav language (see the settings window + character
+  -- panel): flat text, no box/fill, with a 2px GARNET BAR marking the active tab
+  -- -- a bottom-bar here, the horizontal analog of the nav's garnet left-bar.
+  -- Idle text is muted (text3) and brightens to text2 on hover; the active tab's
+  -- text is primary (text). Blizzard's blue hover highlight is removed. Tabs are
+  -- also forced to stay visible: vanilla fades idle tabs out and then *Hides*
+  -- them (FCF_ChatTabFadeFinished -> chatTab:Hide()), which is why they vanished
+  -- after a reload -- we re-Show + re-assert alpha on every styling pass.
+  local function TabActive(tab)
+    return SELECTED_CHAT_FRAME and tab.GetID and tab:GetID() == SELECTED_CHAT_FRAME:GetID()
+  end
+
+  local function StyleTabState(tab)
+    if not tab then return end
+    if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(tab) end
+    tab:Show()                                  -- recover from the fade-out Hide()
+    if tab._SetAlpha then tab:_SetAlpha(1) end
+    local active = TabActive(tab)
+    if tab.horyBar then
+      if active then tab.horyBar:Show() else tab.horyBar:Hide() end
     end
+    local txt = getglobal(tab:GetName() .. "Text")
+    if txt then
+      local t = active and C.text or C.text3          -- active primary, idle muted
+      txt:SetTextColor(t[1], t[2], t[3], 1)
+    end
+  end
+
+  -- our SetAlpha replacement (called as tab:SetAlpha(a), so `self` is the tab):
+  -- ignore the requested alpha and re-assert our visible styling instead.
+  local function SkipFading(self) StyleTabState(self) end
+
+  local function RefreshTabs()
+    for i = 1, NUMWIN do
+      local frame = getglobal("ChatFrame" .. i)
+      if frame and (i == 1 or frame.isDocked) then
+        StyleTabState(getglobal("ChatFrame" .. i .. "Tab"))
+      end
+    end
+  end
+
+  local function StyleTab(i)
+    local tab = getglobal("ChatFrame" .. i .. "Tab")
+    if not tab then return end
+    tab:SetFrameStrata("LOW")                          -- above the BACKGROUND backdrop
+    local tabText = getglobal("ChatFrame" .. i .. "TabText")
+    if tabText then HoryUI.SetFont(tabText, HoryUI.font.normal, 12, "OUTLINE") end
+    -- hide Blizzard tab art + new-message flash
     local l = getglobal("ChatFrame" .. i .. "TabLeft")
     local m = getglobal("ChatFrame" .. i .. "TabMiddle")
     local r = getglobal("ChatFrame" .. i .. "TabRight")
@@ -315,7 +374,73 @@ HoryUI:RegisterModule("chat", true, function()
     if m then m:SetAlpha(0) end
     if r then r:SetAlpha(0) end
     local flash = getglobal("ChatFrame" .. i .. "TabFlash")
-    if flash then flash.Show = function() return end end
+    if flash then flash:Hide(); flash.Show = function() return end end
+
+    -- kill Blizzard's blue hover highlight (HoryUI tabs hover via text colour)
+    local hl = tab:GetHighlightTexture()
+    if hl then hl:SetTexture(nil) end
+
+    -- tab-drag drop indicator: replace Blizzard's tall additive glow bar
+    -- (UI-ChatFrame-DockHighlight) with a clean flat 2px garnet line. Blizzard
+    -- centres the indicator on the tab's RIGHT edge (template OnLoad anchors it
+    -- to [Tab]Right with a -16 offset = half the old 32px texture width). We
+    -- keep that intent -- anchor our thin line's CENTER to the same edge -- so
+    -- it still marks the insertion point; only the look + size change.
+    local dockHi = getglobal("ChatFrame" .. i .. "TabDockRegionHighlight")
+    if dockHi and not dockHi.horyDock then
+      dockHi.horyDock = true
+      dockHi:SetTexture(HoryUI.tex.white)
+      dockHi:SetBlendMode("BLEND")
+      dockHi:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+      dockHi:ClearAllPoints()
+      dockHi:SetPoint("CENTER", getglobal("ChatFrame" .. i .. "TabRight"), "RIGHT", 0, -3)
+      dockHi:SetWidth(2)
+      dockHi:SetHeight(20)                       -- fits the tab heading, not the 32px glow
+    end
+
+    if not tab.horyTab and tabText then
+      tab.horyTab = true
+      -- active cue: a 2px garnet bar UNDER the label -- the horizontal analog of
+      -- the settings/character nav's garnet left-bar (flat text + bar, no box).
+      local bar = tab:CreateTexture(nil, "OVERLAY")
+      bar:SetTexture(HoryUI.tex.white)
+      bar:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+      bar:SetHeight(2)
+      bar:SetPoint("TOPLEFT", tabText, "BOTTOMLEFT", -2, -4)
+      bar:SetPoint("TOPRIGHT", tabText, "BOTTOMRIGHT", 2, -4)
+      bar:Hide()
+      tab.horyBar = bar
+
+      -- hover: brighten idle text muted -> secondary (nav language). Chain the
+      -- native handlers (the newbie "Chat Options" tip) rather than replace them.
+      local oldEnter = tab:GetScript("OnEnter")
+      tab:SetScript("OnEnter", function()
+        if oldEnter then oldEnter() end
+        if not TabActive(this) then
+          local t = getglobal(this:GetName() .. "Text")
+          if t then t:SetTextColor(C.text2[1], C.text2[2], C.text2[3], 1) end
+        end
+      end)
+      local oldLeave = tab:GetScript("OnLeave")
+      tab:SetScript("OnLeave", function()
+        if oldLeave then oldLeave() end
+        if not TabActive(this) then
+          local t = getglobal(this:GetName() .. "Text")
+          if t then t:SetTextColor(C.text3[1], C.text3[2], C.text3[3], 1) end
+        end
+      end)
+
+      -- never fade out: pin alpha + re-show on any fade attempt
+      tab._SetAlpha = tab.SetAlpha
+      tab.SetAlpha = SkipFading
+      -- re-evaluate every tab's active state when one is clicked
+      local oldClick = tab:GetScript("OnClick")
+      tab:SetScript("OnClick", function()
+        if oldClick then oldClick() end
+        RefreshTabs()
+      end)
+    end
+    StyleTabState(tab)
   end
 
   local function HideChatTextures(i)
@@ -330,53 +455,56 @@ HoryUI:RegisterModule("chat", true, function()
   end
 
   ----------------------------------------------------------------------------
-  -- the one movable chat panel (left). ChatFrame1 + any docked tabs live in it.
+  -- the one movable chat panel (left). We do NOT reparent ChatFrame1 into a
+  -- fixed rect -- that fought FCF docking and the text drifted out of the
+  -- backdrop. Instead we lock + place ChatFrame1 and wrap a backdrop AROUND it
+  -- (anchored to its corners), so the panel can never mismatch the chat. Docked
+  -- tabs (combat log) ride along with ChatFrame1.
   ----------------------------------------------------------------------------
+  local main = getglobal("ChatFrame1")
+  local TOPPAD = 24                     -- strip above the chat for the tab row
+
+  -- chat at LOW strata, backdrop at BACKGROUND, so the text always draws on top
+  main:SetFrameStrata("LOW")
+
   local panel = CreateFrame("Frame", "HoryUIChat", UIParent)
-  panel:SetWidth(430)
-  panel:SetHeight(175)
   panel:SetFrameStrata("BACKGROUND")
+  panel:SetPoint("TOPLEFT", main, "TOPLEFT", -6, TOPPAD)
+  panel:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", 6, -6)
   HoryUI.CreateBackdrop(panel)
-  HoryUI.RegisterPanel(panel, "chat", "Chat", "BOTTOMLEFT", 16, 30)
 
-  local TOPPAD = 20            -- room for the tab strip across the panel top
+  -- 1px hairline dividing the tab strip from the message body -- same divider
+  -- language as the settings / character window (border_soft, alpha 0.9).
+  local divider = panel:CreateTexture(nil, "ARTWORK")
+  divider:SetTexture(HoryUI.tex.white)
+  local ds = HoryUI.color.border_soft
+  divider:SetVertexColor(ds[1], ds[2], ds[3], 0.9)
+  divider:SetHeight(1)
+  divider:SetPoint("TOPLEFT", main, "TOPLEFT", 0, 1)
+  divider:SetPoint("TOPRIGHT", main, "TOPRIGHT", 0, 1)
 
-  local function RefreshChat()
+  -- restyle only (no reparenting, no FCF position calls): hide Blizzard chat
+  -- art, rebuild tabs as HoryUI chips, wire wheel-scroll + hyperlink tooltips.
+  local function Restyle()
     for i = 1, NUMWIN do
       local frame = getglobal("ChatFrame" .. i)
-      local tab = getglobal("ChatFrame" .. i .. "Tab")
       if frame then
         frame.horyCombat = IsCombatFrame(frame)
-
         if i == 1 or frame.isDocked then
-          if i ~= 1 then FCF_DockFrame(frame) end
-          if tab then tab:SetParent(panel) end
-          frame:SetParent(panel)
-          frame:ClearAllPoints()
-          frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -TOPPAD)
-          frame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -6, 6)
           HideChatTextures(i)
           StyleTab(i)
-        else
-          FCF_UnDockFrame(frame)
-          frame:SetParent(UIParent)
-          if tab then tab:SetParent(UIParent) end
         end
-
         frame:EnableMouseWheel(true)
         frame:SetScript("OnMouseWheel", ChatWheel)
         frame:SetScript("OnHyperlinkEnter", HyperEnter)
         frame:SetScript("OnHyperlinkLeave", HyperLeave)
       end
     end
-    if DOCKED_CHAT_FRAMES then
-      for _, v in pairs(DOCKED_CHAT_FRAMES) do FCF_UpdateButtonSide(v) end
-    end
-    if FCF_DockUpdate then FCF_DockUpdate() end
+    RefreshTabs()                                      -- settle active/idle states
   end
 
   ----------------------------------------------------------------------------
-  -- one-time setup: restore history, hook AddMessage, skin/kill chrome, lock
+  -- one-time setup: restore history, hook AddMessage, kill scroll/menu buttons
   ----------------------------------------------------------------------------
   for i = 1, NUMWIN do
     local cf = getglobal("ChatFrame" .. i)
@@ -398,29 +526,91 @@ HoryUI:RegisterModule("chat", true, function()
   end
   Kill(ChatFrameMenuButton)
 
-  -- skin + dock the shared edit box across the bottom of the panel
+  -- Geometry persistence. 1.12 does NOT save chat size/position itself, so we
+  -- own it in HoryUIDB: position via RegisterPanel/SavePosition (the mover),
+  -- size via HoryUIDB.chatSize (the resize grip below). Both are re-asserted on
+  -- PLAYER_ENTERING_WORLD so nothing Blizzard does on load can reset them. (The
+  -- old code hard-coded the size every load, which is why a resize never stuck.)
+  local DEFAULT_W, DEFAULT_H = 420, 160
+  local function RestoreChatSize()
+    local w, h = DEFAULT_W, DEFAULT_H
+    if type(HoryUIDB.chatSize) == "table" then
+      w = tonumber(HoryUIDB.chatSize[1]) or DEFAULT_W
+      h = tonumber(HoryUIDB.chatSize[2]) or DEFAULT_H
+    end
+    main:SetWidth(w)
+    main:SetHeight(h)
+  end
+  local function RestoreChatGeom()
+    RestoreChatSize()
+    HoryUI.RestorePosition(main, "chat", "BOTTOMLEFT", 24, 44)
+  end
+  local function SaveChatGeom()
+    HoryUIDB.chatSize = { main:GetWidth(), main:GetHeight() }
+    HoryUI.SavePosition(main, "chat")
+  end
+
+  RestoreChatSize()
+  if FCF_SetLocked then FCF_SetLocked(main, 1) end
+  if main.SetUserPlaced then main:SetUserPlaced(1) end
+  main:SetResizable(true)
+  if main.SetMinResize then main:SetMinResize(220, 90) end
+  if main.SetMaxResize then main:SetMaxResize(760, 520) end
+  HoryUI.RegisterPanel(main, "chat", "Chat", "BOTTOMLEFT", 24, 44)
+
+  -- resize grip at the panel's top-right, shown only while unlocked. The chat is
+  -- bottom-anchored, so sizing from TOPRIGHT keeps BOTTOMLEFT fixed and grows the
+  -- frame up/right (never down off-screen). It sits at TOOLTIP strata so it stays
+  -- clickable above the move overlay (which covers the panel at FULLSCREEN_DIALOG).
+  local grip = CreateFrame("Frame", nil, UIParent)
+  grip:SetWidth(16); grip:SetHeight(16)
+  grip:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+  grip:SetFrameStrata("TOOLTIP")
+  grip:EnableMouse(true)
+  grip:Hide()
+  local gtex = grip:CreateTexture(nil, "OVERLAY")
+  gtex:SetTexture(HoryUI.tex.white)
+  gtex:SetPoint("TOPRIGHT", grip, "TOPRIGHT", -2, -2)
+  gtex:SetWidth(10); gtex:SetHeight(10)
+  local ga = HoryUI.color.accent
+  gtex:SetVertexColor(ga[1], ga[2], ga[3], 0.7)
+  grip:SetScript("OnMouseDown", function() main:StartSizing("TOPRIGHT") end)
+  grip:SetScript("OnMouseUp", function()
+    main:StopMovingOrSizing()
+    SaveChatGeom()
+  end)
+  HoryUI.AddRefresher(function()
+    if HoryUI.locked then grip:Hide() else grip:Show() end
+  end)
+
+  -- edit box: skin + sit just under the panel. FCF re-points it to its chat
+  -- frame whenever it opens, so re-apply our anchor on show.
   SkinEditBox(ChatFrameEditBox)
-  if ChatFrameEditBox then
+  local function AnchorEdit()
+    if not ChatFrameEditBox then return end
     ChatFrameEditBox:ClearAllPoints()
     ChatFrameEditBox:SetPoint("TOPLEFT", panel, "BOTTOMLEFT", 0, -3)
     ChatFrameEditBox:SetPoint("TOPRIGHT", panel, "BOTTOMRIGHT", 0, -3)
     ChatFrameEditBox:SetHeight(22)
+  end
+  if ChatFrameEditBox then
     if ChatFrameEditBox.SetAltArrowKeyMode then ChatFrameEditBox:SetAltArrowKeyMode(false) end
+    AnchorEdit()
+    local oldShow = ChatFrameEditBox:GetScript("OnShow")
+    ChatFrameEditBox:SetScript("OnShow", function()
+      if oldShow then oldShow() end
+      AnchorEdit()
+    end)
   end
 
-  -- lock + user-place the host frame so Blizzard's layout system doesn't reset
-  -- it out from under the panel anchor (move via the HoryUI unlock instead)
-  if FCF_SetLocked then FCF_SetLocked(ChatFrame1, 1) end
-  if ChatFrame1.SetUserPlaced then ChatFrame1:SetUserPlaced(1) end
-
-  -- re-anchor whenever docking changes (no hooksecurefunc in 1.12)
+  -- restyle when docking changes (no hooksecurefunc in 1.12)
   local origSaveDock = FCF_SaveDock
   FCF_SaveDock = function()
     if origSaveDock then origSaveDock() end
-    RefreshChat()
+    Restyle()
   end
 
-  RefreshChat()
+  Restyle()
 
   ----------------------------------------------------------------------------
   -- keep the class DB fresh + re-anchor on world enter; defuse on logout
@@ -439,7 +629,8 @@ HoryUI:RegisterModule("chat", true, function()
       return
     end
     if event == "PLAYER_ENTERING_WORLD" then
-      RefreshChat()
+      RestoreChatGeom()                          -- re-assert saved size + position
+      Restyle()
     elseif event == "PLAYER_TARGET_CHANGED" then
       RememberUnit("target")
     elseif event == "UPDATE_MOUSEOVER_UNIT" then

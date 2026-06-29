@@ -372,3 +372,80 @@ function HoryUI.CreateDropDown(parent, width, options, onSelect)
   dd.SetValue(options[1].value)
   return dd
 end
+
+-- A flat Garnet slider in a labelled container (label top-left, value top-right,
+-- track along the bottom). Anchor the returned container `s`. It is *reconfigurable*
+-- so one slider can be reused for different settings (the right-click bar menu does
+-- this): `s.Configure(label, min, max, step, value, onChange[, suffix])` sets it up;
+-- `onChange(value)` fires only on real user interaction -- a programmatic
+-- `s.SetValue(v)` is silent (so loading values into the menu never feeds back).
+function HoryUI.CreateSlider(parent, width)
+  local C = HoryUI.color
+  local floor = math.floor
+  local s = CreateFrame("Frame", nil, parent)
+  s:SetWidth(width or 180)
+  s:SetHeight(28)
+  s.step = 1
+  s.suffix = ""
+  s._setting = false
+
+  local label = s:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(label, HoryUI.font.normal, 11, "OUTLINE")
+  label:SetPoint("TOPLEFT", s, "TOPLEFT", 0, 0)
+  label:SetTextColor(C.text2[1], C.text2[2], C.text2[3])
+
+  local val = s:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(val, HoryUI.font.number, 11, "OUTLINE")
+  val:SetPoint("TOPRIGHT", s, "TOPRIGHT", 0, 0)
+  val:SetTextColor(C.text[1], C.text[2], C.text[3])
+
+  local slider = CreateFrame("Slider", nil, s)
+  slider:SetOrientation("HORIZONTAL")
+  slider:SetHeight(8)
+  slider:SetPoint("BOTTOMLEFT", s, "BOTTOMLEFT", 1, 2)
+  slider:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", -1, 2)
+  HoryUI.CreateBackdrop(slider)
+
+  local thumb = slider:CreateTexture(nil, "OVERLAY")
+  thumb:SetTexture(HoryUI.tex.white)
+  thumb:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+  thumb:SetWidth(8); thumb:SetHeight(14)
+  slider:SetThumbTexture(thumb)
+  s.slider = slider
+
+  local function fmt(v)
+    if s.step and s.step >= 1 then v = floor(v + 0.5) end
+    return tostring(v) .. (s.suffix or "")
+  end
+
+  slider:SetScript("OnValueChanged", function()
+    local v = arg1
+    if s.step and s.step >= 1 then v = floor(v + 0.5) end
+    val:SetText(fmt(v))
+    if not s._setting and s.onChange then s.onChange(v) end
+  end)
+
+  s.Configure = function(text, mn, mx, step, value, onChange, suffix)
+    label:SetText(text or "")
+    s.step = step or 1
+    s.suffix = suffix or ""
+    s.onChange = nil                 -- suppress feedback while we set up
+    s._setting = true
+    slider:SetMinMaxValues(mn, mx)
+    slider:SetValueStep(step or 1)
+    slider:SetValue(value or mn)
+    s._setting = false
+    val:SetText(fmt(value or mn))
+    s.onChange = onChange
+  end
+
+  s.SetValue = function(value)         -- programmatic: no onChange
+    s._setting = true
+    slider:SetValue(value)
+    s._setting = false
+    val:SetText(fmt(value))
+  end
+  s.GetValue = function() return slider:GetValue() end
+
+  return s
+end

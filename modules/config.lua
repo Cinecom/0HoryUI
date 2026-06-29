@@ -7,7 +7,7 @@ HoryUI:RegisterModule("config", true, function()
   local C = HoryUI.color
   local getn = table.getn
   local format = string.format
-  local W, H = 420, 360
+  local W, H = 420, 410
 
   -- =========================================================================
   -- window
@@ -102,6 +102,7 @@ HoryUI:RegisterModule("config", true, function()
   local navAddons  = MakeNav("Addons",  "addons",  -98)
   local navPfui    = MakeNav("PfUI",    "pfui",    -126)
   local navLoad    = MakeNav("Load Times", "loadtimes", -154)
+  local navAbars   = MakeNav("Actionbars", "actionbars", -182)
 
   local function HLNav(b, active)
     b.active = active
@@ -147,6 +148,109 @@ HoryUI:RegisterModule("config", true, function()
   reset:SetWidth(130)
   reset:SetPoint("TOPLEFT", general, "TOPLEFT", 2, -56)
   Desc("Send every HoryUI panel back to its default spot (reloads).", reset, -6)
+
+  -- ---- HoryUI profiles (ALL settings: every frame position + module flags +
+  -- the vendored Bongos bar layout) ----------------------------------------
+  -- A profile snapshots HoryUIDB (minus the profiles container itself) plus the
+  -- four Bongos saved-var tables, so one named profile restores the entire UI.
+  local function deepcopy(t)
+    if type(t) ~= "table" then return t end
+    local r = {}
+    for k, v in pairs(t) do r[k] = deepcopy(v) end
+    return r
+  end
+
+  local function HProfSnapshotDB()
+    local snap = {}
+    for k, v in pairs(HoryUIDB) do
+      if k ~= "profiles" then snap[k] = deepcopy(v) end
+    end
+    return snap
+  end
+
+  local function HProfSave(name)
+    HoryUIDB.profiles = HoryUIDB.profiles or {}
+    HoryUIDB.profiles[name] = {
+      db = HProfSnapshotDB(),
+      bongos = {
+        BongosSets   = deepcopy(BongosSets),
+        BActionSets  = deepcopy(BActionSets),
+        BStanceSets  = deepcopy(BStanceSets),
+        BContextSets = deepcopy(BContextSets),
+      },
+    }
+  end
+
+  local function HProfLoad(name)
+    local p = HoryUIDB.profiles and HoryUIDB.profiles[name]
+    if not p then return end
+    local keep = HoryUIDB.profiles                 -- never clobber the profile store
+    for k in pairs(HoryUIDB) do if k ~= "profiles" then HoryUIDB[k] = nil end end
+    for k, v in pairs(p.db) do HoryUIDB[k] = deepcopy(v) end
+    HoryUIDB.profiles = keep
+    if p.bongos then
+      BongosSets   = deepcopy(p.bongos.BongosSets)
+      BActionSets  = deepcopy(p.bongos.BActionSets)
+      BStanceSets  = deepcopy(p.bongos.BStanceSets)
+      BContextSets = deepcopy(p.bongos.BContextSets)
+    end
+    ReloadUI()                                      -- positions/bars apply on reload
+  end
+
+  local hpHdr = general:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(hpHdr, HoryUI.font.normal, 12, "OUTLINE")
+  hpHdr:SetPoint("TOPLEFT", general, "TOPLEFT", 2, -104)
+  hpHdr:SetText("Profiles")
+  hpHdr:SetTextColor(C.accent_hi[1], C.accent_hi[2], C.accent_hi[3])
+  Desc("Save / load the whole HoryUI setup (panel positions, modules, action bars).", hpHdr, -4)
+
+  local hpName = CreateFrame("EditBox", nil, general)
+  hpName:SetWidth(150); hpName:SetHeight(18)
+  hpName:SetAutoFocus(false)
+  hpName:SetFont(HoryUI.font.normal, 11, "OUTLINE")
+  hpName:SetTextColor(C.text[1], C.text[2], C.text[3])
+  hpName:SetTextInsets(4, 4, 0, 0)
+  hpName:SetPoint("TOPLEFT", general, "TOPLEFT", 2, -136)
+  HoryUI.CreateBackdrop(hpName)
+  hpName:SetScript("OnEscapePressed", function() this:ClearFocus() end)
+  hpName:SetScript("OnEnterPressed", function() this:ClearFocus() end)
+
+  local hpData, hpSel = {}, nil
+  local RefreshHProf
+
+  local hpSave = HoryUI.CreateButton(general, "Save", function()
+    local n = hpName:GetText()
+    if n and n ~= "" then HProfSave(n); hpSel = n; RefreshHProf() end
+  end)
+  hpSave:SetWidth(60); hpSave:SetPoint("LEFT", hpName, "RIGHT", 6, 0)
+
+  local hpList = HoryUI.CreateScrollFrame(general, 240, 4, 23)
+  hpList:SetPoint("TOPLEFT", general, "TOPLEFT", 2, -160)
+  hpList.OnUpdateRow = function(row, idx)
+    row.label:SetText(hpData[idx])
+    row.SetOn(hpSel == hpData[idx])
+  end
+  hpList.OnClickRow = function(idx)
+    hpSel = hpData[idx]; hpName:SetText(hpSel); hpList.Update()
+  end
+
+  local hpLoad = HoryUI.CreateButton(general, "Load", function()
+    if hpSel then HProfLoad(hpSel) end
+  end)
+  hpLoad:SetWidth(80); hpLoad:SetPoint("TOPLEFT", general, "TOPLEFT", 2, -256)
+  local hpDel = HoryUI.CreateButton(general, "Delete", function()
+    if hpSel and HoryUIDB.profiles then HoryUIDB.profiles[hpSel] = nil; hpSel = nil; RefreshHProf() end
+  end)
+  hpDel:SetWidth(80); hpDel:SetPoint("LEFT", hpLoad, "RIGHT", 6, 0)
+
+  RefreshHProf = function()
+    hpData = {}
+    if HoryUIDB.profiles then
+      for name in pairs(HoryUIDB.profiles) do tinsert(hpData, name) end
+      table.sort(hpData)
+    end
+    hpList.SetTotal(getn(hpData))
+  end
 
   -- =========================================================================
   -- content : Modules
@@ -326,6 +430,215 @@ HoryUI:RegisterModule("config", true, function()
   end
 
   -- =========================================================================
+  -- content : Actionbars  (drives the vendored Bongos engine -- see bongos/)
+  -- =========================================================================
+  local abars = CreateFrame("Frame", nil, win)
+  abars:SetPoint("TOPLEFT", win, "TOPLEFT", 132, -44)
+  abars:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -12, 42)
+
+  -- shown instead of the controls when the standalone Bongos addon is still on
+  local abDormant = abars:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(abDormant, HoryUI.font.normal, 11, "OUTLINE")
+  abDormant:SetPoint("TOPLEFT", abars, "TOPLEFT", 2, -8)
+  abDormant:SetWidth(264); abDormant:SetJustifyH("LEFT")
+  abDormant:SetTextColor(C.threat[1], C.threat[2], C.threat[3])
+  abDormant:Hide()
+
+  -- horizontal sub-tab strip (Garnet underline = active, matching the chat tabs)
+  local abCurrent = "global"
+  local abSub = {}
+  local ShowSub
+  local function MakeSub(label, key, x, w)
+    local b = CreateFrame("Button", nil, abars)
+    b:SetHeight(16); b:SetWidth(w)
+    b:SetPoint("TOPLEFT", abars, "TOPLEFT", x, -2)
+    b.text = b:CreateFontString(nil, "OVERLAY")
+    HoryUI.SetFont(b.text, HoryUI.font.normal, 11, "OUTLINE")
+    b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
+    b.text:SetText(label)
+    b.text:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
+    b.bar = b:CreateTexture(nil, "OVERLAY")
+    b.bar:SetTexture(HoryUI.tex.white)
+    b.bar:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+    b.bar:SetHeight(2)
+    b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, -3)
+    b.bar:SetPoint("BOTTOMRIGHT", b.text, "BOTTOMRIGHT", 0, -3)
+    b.bar:Hide()
+    b:SetScript("OnClick", function() ShowSub(key) end)
+    b:SetScript("OnEnter", function() if abCurrent ~= key then this.text:SetTextColor(C.text2[1], C.text2[2], C.text2[3]) end end)
+    b:SetScript("OnLeave", function() if abCurrent ~= key then this.text:SetTextColor(C.text3[1], C.text3[2], C.text3[3]) end end)
+    abSub[key] = b
+    return b
+  end
+  -- (Profiles live in the General tab now -- it captures the whole UI incl. bars.)
+  MakeSub("Global", "global", 2, 44)
+  MakeSub("Bars", "bars", 56, 32)
+  MakeSub("Paging", "paging", 100, 44)
+
+  local abRule = abars:CreateTexture(nil, "ARTWORK")
+  abRule:SetTexture(HoryUI.tex.white)
+  abRule:SetVertexColor(C.border_soft[1], C.border_soft[2], C.border_soft[3], 0.9)
+  abRule:SetHeight(1)
+  abRule:SetPoint("TOPLEFT", abars, "TOPLEFT", 2, -22)
+  abRule:SetPoint("TOPRIGHT", abars, "TOPRIGHT", -2, -22)
+
+  local function MakeSubPanel()
+    local p = CreateFrame("Frame", nil, abars)
+    p:SetPoint("TOPLEFT", abars, "TOPLEFT", 2, -30)
+    p:SetPoint("BOTTOMRIGHT", abars, "BOTTOMRIGHT", -2, 2)
+    p:Hide()
+    return p
+  end
+  local pGlobal, pBars, pPaging = MakeSubPanel(), MakeSubPanel(), MakeSubPanel()
+
+  -- ---- Global ----  (two columns of checkboxes + dropdowns + slider + swatch)
+  -- get closures are nil-safe: CreateCheckbox calls get() at BUILD time (during
+  -- HoryUI:Init), but the Bongos engine may populate BActionSets a frame later.
+  local function ag() return BActionSets and BActionSets.g end          -- engine ready?
+  local gChecks = {
+    { "Sticky bars",        function() return BongosSets and BongosSets.sticky end,        function(v) Bongos_SetStickyBars(v) end },
+    { "Lock buttons",       function() return ag() and BActionSets_ButtonsLocked() end,    function(v) BActionSets_SetButtonsLocked(v) end },
+    { "Show empty slots",   function() return ag() and BActionSets_ShowGrid() end,         function(v) BActionSets_SetShowGrid(v) end },
+    { "Show tooltips",      function() return ag() and BActionSets_TooltipsShown() end,    function(v) BActionSets_SetTooltips(v) end },
+    { "Range coloring",     function() return ag() and BActionSets_ColorOutOfRange() end,  function(v) BActionSets_SetColorOutOfRange(v) end },
+    { "Hotkey text",        function() return ag() and BActionSets_HotkeysShown() end,     function(v) BActionSets_SetHotkeys(v) end },
+    { "Macro text",         function() return ag() and BActionSets_MacrosShown() end,      function(v) BActionSets_SetMacroText(v) end },
+    { "RMB self-cast",      function() return ag() and BActionSets_RightClickSelfCasts() end, function(v) BActionSets_SetRightClickSelfCast(v) end },
+    { "Reuse Bliz buttons", function() return BongosSets and not BongosSets.dontReuse end,  function(v) Bongos_Reuse(v) end },
+  }
+  local gCheckObjs = {}
+  for i = 1, getn(gChecks) do
+    local c = gChecks[i]
+    local chk = HoryUI.CreateCheckbox(pGlobal, c[1], c[2], c[3])
+    chk:SetWidth(126)
+    local col = (i <= 5) and 0 or 1
+    local rowi = (i <= 5) and (i - 1) or (i - 6)
+    chk:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", col * 132, -rowi * 18)
+    gCheckObjs[i] = chk
+  end
+
+  local scDD = HoryUI.CreateDropDown(pGlobal, 150, {
+    { text = "Self-cast: None", value = 0 }, { text = "Self-cast: Alt", value = 1 },
+    { text = "Self-cast: Ctrl", value = 2 }, { text = "Self-cast: Shift", value = 3 },
+  }, function(v) BActionSets_SetSelfCastMode((v ~= 0) and v or nil) end)
+  scDD:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", 0, -98)
+
+  local qmDD = HoryUI.CreateDropDown(pGlobal, 150, {
+    { text = "Quick-move: None", value = 0 }, { text = "Quick-move: Shift", value = 1 },
+    { text = "Quick-move: Ctrl", value = 2 }, { text = "Quick-move: Alt", value = 3 },
+  }, function(v) BActionSets_SetQuickMoveMode((v ~= 0) and v or nil) end)
+  qmDD:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", 0, -120)
+
+  local swatch = CreateFrame("Button", nil, pGlobal)
+  swatch:SetWidth(16); swatch:SetHeight(16)
+  swatch:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", 168, -120)
+  HoryUI.CreateBackdrop(swatch)
+  swatch.tex = swatch:CreateTexture(nil, "ARTWORK")
+  swatch.tex:SetTexture(HoryUI.tex.white)
+  swatch.tex:SetPoint("TOPLEFT", swatch, "TOPLEFT", 2, -2)
+  swatch.tex:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -2, 2)
+  local swatchLbl = pGlobal:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(swatchLbl, HoryUI.font.normal, 10, "OUTLINE")
+  swatchLbl:SetPoint("LEFT", swatch, "RIGHT", 6, 0)
+  swatchLbl:SetText("Range color")
+  swatchLbl:SetTextColor(C.text2[1], C.text2[2], C.text2[3])
+  swatch:SetScript("OnClick", function()
+    local r, g, b = BActionSets_GetRangeColor()
+    r = r or 1; g = g or 0.5; b = b or 0.5
+    ColorPickerFrame.func = function()
+      local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+      BActionSets_SetRangeColor(nr, ng, nb); swatch.tex:SetVertexColor(nr, ng, nb)
+    end
+    ColorPickerFrame.cancelFunc = function()
+      local p = ColorPickerFrame.previousValues
+      BActionSets_SetRangeColor(p.r, p.g, p.b); swatch.tex:SetVertexColor(p.r, p.g, p.b)
+    end
+    ColorPickerFrame.previousValues = { r = r, g = g, b = b }
+    ColorPickerFrame:SetColorRGB(r, g, b)
+    ShowUIPanel(ColorPickerFrame)
+  end)
+
+  local numSlider = HoryUI.CreateSlider(pGlobal, 150)
+  numSlider:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", 0, -150)
+
+  local function RefreshGlobal()
+    for i = 1, getn(gCheckObjs) do gCheckObjs[i].Refresh() end
+    scDD.SetValue(BActionSets_GetSelfCastMode() or 0)
+    qmDD.SetValue(BActionSets_GetQuickMoveMode() or 0)
+    local r, g, b = BActionSets_GetRangeColor()
+    swatch.tex:SetVertexColor(r or 1, g or 0.5, b or 0.5)
+    numSlider.Configure("Action bars", 1, 12, 1, BActionBar.GetNumber(),
+      function(v) BActionBar.SetNumber(v) end)
+  end
+
+  -- ---- Bars ----  (per-bar show/hide)
+  local barData = {}
+  local barList = HoryUI.CreateScrollFrame(pBars, 264, 11, 23)
+  barList:SetPoint("TOPLEFT", pBars, "TOPLEFT", 0, -2)
+  barList.OnUpdateRow = function(row, idx)
+    local d = barData[idx]
+    row.label:SetText(d.label)
+    local bar = BBar.IDToBar(d.id)
+    row.SetOn(bar and bar:IsShown() and true or false)
+  end
+  barList.OnClickRow = function(idx)
+    local bar = BBar.IDToBar(barData[idx].id)
+    if bar then BBar.Toggle(bar, 1); barList.Update() end
+  end
+  local function RefreshBars()
+    barData = {}
+    for i = 1, BActionBar.GetNumber() do tinsert(barData, { id = i, label = "Action Bar " .. i }) end
+    tinsert(barData, { id = "pet",   label = "Pet Bar" })
+    tinsert(barData, { id = "class", label = "Class Bar" })
+    tinsert(barData, { id = "bags",  label = "Bag Bar" })
+    tinsert(barData, { id = "menu",  label = "Menu Bar" })
+    tinsert(barData, { id = "key",   label = "Key Bar" })
+    barList.SetTotal(getn(barData))
+  end
+
+  -- ---- Paging ----  (per-bar manual paging + page-skip; stance uses defaults)
+  local pageData = {}
+  local pageList = HoryUI.CreateScrollFrame(pPaging, 264, 7, 23)
+  pageList:SetPoint("TOPLEFT", pPaging, "TOPLEFT", 0, -2)
+  pageList.OnUpdateRow = function(row, idx)
+    row.label:SetText("Action Bar " .. pageData[idx])
+    row.SetOn(BActionBar.CanPage(pageData[idx]) and true or false)
+  end
+  pageList.OnClickRow = function(idx)
+    local id = pageData[idx]
+    BActionBar.SetPaging(id, not BActionBar.CanPage(id))
+    pageList.Update()
+  end
+  local skipSlider = HoryUI.CreateSlider(pPaging, 240)
+  skipSlider:SetPoint("TOPLEFT", pPaging, "TOPLEFT", 0, -172)
+  local pageNote = pPaging:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(pageNote, HoryUI.font.normal, 10, "OUTLINE")
+  pageNote:SetPoint("TOPLEFT", pPaging, "TOPLEFT", 0, -206)
+  pageNote:SetWidth(260); pageNote:SetJustifyH("LEFT")
+  pageNote:SetText("Stance / stealth paging follows Bongos defaults automatically.")
+  pageNote:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
+  local function RefreshPaging()
+    pageData = {}
+    for i = 1, BActionBar.GetNumber() do tinsert(pageData, i) end
+    pageList.SetTotal(getn(pageData))
+    if BActionSets and BActionSets.g then BActionSets.g.skip = BActionSets.g.skip or 0 end
+    skipSlider.Configure("Page skip", 0, 10, 1, (BActionSets.g.skip or 0),
+      function(v) BActionSets.g.skip = v end)
+  end
+
+  ShowSub = function(key)
+    abCurrent = key
+    for k, b in pairs(abSub) do
+      if k == key then b.bar:Show(); b.text:SetTextColor(C.text[1], C.text[2], C.text[3])
+      else b.bar:Hide(); b.text:SetTextColor(C.text3[1], C.text3[2], C.text3[3]) end
+    end
+    pGlobal:Hide(); pBars:Hide(); pPaging:Hide()
+    if key == "global" then RefreshGlobal(); pGlobal:Show()
+    elseif key == "bars" then RefreshBars(); pBars:Show()
+    elseif key == "paging" then RefreshPaging(); pPaging:Show() end
+  end
+
+  -- =========================================================================
   -- footer
   -- =========================================================================
   local fdiv = win:CreateTexture(nil, "ARTWORK")
@@ -352,12 +665,13 @@ HoryUI:RegisterModule("config", true, function()
   win.tab = "general"
   ShowTab = function(which)
     win.tab = which
-    general:Hide(); modList:Hide(); addonList:Hide(); pfui:Hide(); loadtab:Hide()
+    general:Hide(); modList:Hide(); addonList:Hide(); pfui:Hide(); loadtab:Hide(); abars:Hide()
     HLNav(navGeneral, which == "general")
     HLNav(navMods, which == "modules")
     HLNav(navAddons, which == "addons")
     HLNav(navPfui, which == "pfui")
     HLNav(navLoad, which == "loadtimes")
+    HLNav(navAbars, which == "actionbars")
     if which == "modules" then
       modList:Show(); modList.SetTotal(getn(mods))
     elseif which == "addons" then
@@ -366,8 +680,27 @@ HoryUI:RegisterModule("config", true, function()
       pfui:Show()
     elseif which == "loadtimes" then
       RefreshLoad(); loadtab:Show()
+    elseif which == "actionbars" then
+      -- dormant (standalone Bongos still on) or the engine isn't ready: show a note.
+      -- (BActionBar exists at file-load; BActionSets.g is only populated at the
+      -- engine's PLAYER_LOGIN startup -- so gate on the data, not the table.)
+      if HoryUI._bongosActive or not (BActionBar and BActionSets and BActionSets.g) then
+        if HoryUI._bongosActive then
+          abDormant:SetText("The standalone Bongos addon is enabled, so HoryUI's action bars are dormant. Disable Bongos in the Addons tab and reload to use them here.")
+        else
+          abDormant:SetText("The action bar engine isn't loaded.")
+        end
+        abDormant:Show(); abRule:Hide()
+        for k, b in pairs(abSub) do b:Hide() end
+        pGlobal:Hide(); pBars:Hide(); pPaging:Hide()
+      else
+        abDormant:Hide(); abRule:Show()
+        for k, b in pairs(abSub) do b:Show() end
+        ShowSub(abCurrent)
+      end
+      abars:Show()
     else
-      general:Show()
+      RefreshHProf(); general:Show()
     end
   end
 

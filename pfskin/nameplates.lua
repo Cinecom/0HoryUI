@@ -1006,7 +1006,8 @@ end
 
     nameplate:SetWidth(plate_width)
     nameplate:SetHeight(plate_height)
-    nameplate:SetPoint("TOP", parent, "TOP", 0, 0)
+    -- HoryUI: lift the plate (health bar) a little higher off the unit
+    nameplate:SetPoint("TOP", parent, "TOP", 0, 6)
 
     nameplate.name:SetFont(font, np_name_size, font_style)
 
@@ -1019,6 +1020,7 @@ end
     nameplate.health:SetHeight(C.nameplates.heighthealth)
 
     nameplate.name:ClearAllPoints()
+    -- HoryUI: name sits just below the health bar (tighter gap = higher name)
     nameplate.name:SetPoint("TOP", nameplate.health, "BOTTOM", 0, -2)
     nameplate.health.hlr, nameplate.health.hlg, nameplate.health.hlb, nameplate.health.hla = hlr, hlg, hlb, hla
 
@@ -1034,11 +1036,14 @@ end
     nameplate.glow:SetVertexColor(glowr, glowg, glowb, glowa)
 
     nameplate.raidicon:ClearAllPoints()
-    -- HoryUI: raid mark centered on the health bar
-    nameplate.raidicon:SetPoint("CENTER", nameplate.health, "CENTER", 0, 0)
+    -- HoryUI: big raid mark above the bar, lifted clear of the debuff/buff row
+    -- (debuffs anchor at debuffoffset and grow one row of debuffsize above the bar)
+    local rimark = floor(C.nameplates.raidiconsize * 1.15)
+    local rilift = tonumber(C.nameplates.debuffoffset) + tonumber(C.nameplates.debuffsize) + 2
+    nameplate.raidicon:SetPoint("BOTTOM", nameplate.health, "TOP", 0, rilift)
     nameplate.level:SetFont(font, font_size, font_style)
-    nameplate.raidicon:SetWidth(C.nameplates.raidiconsize)
-    nameplate.raidicon:SetHeight(C.nameplates.raidiconsize)
+    nameplate.raidicon:SetWidth(rimark)
+    nameplate.raidicon:SetHeight(rimark)
 
     for i=1,16 do
       UpdateDebuffConfig(nameplate, i)

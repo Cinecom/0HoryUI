@@ -3,7 +3,7 @@
 -- Lua 5.0 / WoW 1.12 only -- see CLAUDE.md before editing.
 
 HoryUI = HoryUI or {}
-HoryUI.version = "0.1.0"
+HoryUI.version = "0.2.0"
 
 -- A plain white texture that reliably exists on the 1.12 client.
 -- Tinted via SetVertexColor / SetStatusBarColor / SetBackdropColor.
@@ -22,6 +22,8 @@ HoryUI.hex = hex
 -- Garnet design tokens (see CLAUDE.md section 8)
 HoryUI.color = {
   bg           = hex("0D0E10"),
+  bg_raised    = hex("16181B"),  -- raised surfaces (active tab, tooltips)
+  border_soft  = hex("26282C"),  -- inner hairline / dividers
   text         = hex("F2F2F2"),
   text2        = hex("A8ACB3"),
   text3        = hex("6B7079"),
