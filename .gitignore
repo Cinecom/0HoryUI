@@ -1,0 +1,16 @@
+# HoryUI — only the addon itself is tracked.
+
+# Blizzard's stock 1.12 FrameXML, kept locally as a dev reference only.
+.fxref/
+
+# Internal development / design guide (not a runtime addon file).
+CLAUDE.md
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+desktop.ini
+*.bak
+*.tmp
+*.swp
+*~

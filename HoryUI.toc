@@ -1,0 +1,108 @@
+## Interface: 11200
+## Title: HoryUI
+## Notes: Minimal premium rogue HUD for WoW 1.12 (Garnet)
+## Author: Horyoshi
+## Version: 0.1.0
+## SavedVariables: HoryUIDB
+
+core\init.lua
+core\modulesystem.lua
+core\config.lua
+libs\util.lua
+libs\fonts.lua
+libs\nampower.lua
+libs\dll.lua
+libs\pixel.lua
+libs\bars.lua
+libs\blizzard.lua
+libs\panels.lua
+libs\widgets.lua
+libs\skin.lua
+core\slash.lua
+modules\unitframes.lua
+modules\castbar.lua
+modules\auras.lua
+modules\rangetracker.lua
+modules\party.lua
+modules\raid.lua
+modules\weaponpoison.lua
+modules\chat.lua
+modules\config.lua
+modules\minimap.lua
+modules\xprep.lua
+modules\bags.lua
+modules\character.lua
+modules\outfitter.lua
+modules\tooltip.lua
+
+# --- vendored pfUI skin engine (standalone; dormant while pfUI is enabled) ---
+# A near-verbatim copy of pfUI's skin subsystem, renamed pfUI -> pfSkin. See
+# pfskin\boot.lua. Order matters: boot first (creates the namespace + gate),
+# api before ui-widgets (api resets pfSkin.api), config before login. Skins only
+# register, so their order is free. TBC-only skins self-skip via the version gate.
+pfskin\boot.lua
+pfskin\compat.lua
+pfskin\api.lua
+pfskin\ui-widgets.lua
+pfskin\config.lua
+# nameplates module + its libs (ported from pfUI; gated by the PfUI-nameplates toggle).
+# locale data (spell cast times / debuff durations) MUST load before libcast (reads L at load).
+# Order mirrors pfUI's init/libs.xml: tipscan -> spell -> cast -> debuff -> throttle, then the module.
+pfskin\locales_enUS.lua
+pfskin\libtipscan.lua
+pfskin\libspell.lua
+pfskin\libcast.lua
+pfskin\libdebuff.lua
+pfskin\libthrottle.lua
+pfskin\libunitscan.lua
+pfskin\nameplates.lua
+pfskin\skins\arena.lua
+pfskin\skins\arena_registrar.lua
+pfskin\skins\auction.lua
+pfskin\skins\barbershop.lua
+pfskin\skins\battlefield.lua
+pfskin\skins\battlefield_minimap.lua
+pfskin\skins\battlefield_score.lua
+pfskin\skins\character.lua
+pfskin\skins\dressup.lua
+pfskin\skins\ebc.lua
+pfskin\skins\friends.lua
+pfskin\skins\game_menu.lua
+pfskin\skins\gossipquest.lua
+pfskin\skins\guild_registrar.lua
+pfskin\skins\guildbank.lua
+pfskin\skins\help.lua
+pfskin\skins\inspect.lua
+pfskin\skins\itemtext.lua
+pfskin\skins\keybindings.lua
+pfskin\skins\lfg.lua
+pfskin\skins\lft.lua
+pfskin\skins\macro.lua
+pfskin\skins\mail.lua
+pfskin\skins\merchant.lua
+pfskin\skins\miscellaneous.lua
+pfskin\skins\options-interface.lua
+pfskin\skins\options-new.lua
+pfskin\skins\options-sound.lua
+pfskin\skins\options-video.lua
+pfskin\skins\petition.lua
+pfskin\skins\popup_dialogs.lua
+pfskin\skins\professions.lua
+pfskin\skins\questlog.lua
+pfskin\skins\raidui.lua
+pfskin\skins\readycheck.lua
+pfskin\skins\socket.lua
+pfskin\skins\shagudps.lua
+pfskin\skins\spellbook.lua
+pfskin\skins\stable.lua
+pfskin\skins\survey.lua
+pfskin\skins\tabard.lua
+pfskin\skins\talents.lua
+pfskin\skins\taxi.lua
+pfskin\skins\time_manager.lua
+pfskin\skins\tooltips.lua
+pfskin\skins\tracking.lua
+pfskin\skins\trade.lua
+pfskin\skins\trainer.lua
+pfskin\skins\transmog.lua
+pfskin\skins\turtle_shop.lua
