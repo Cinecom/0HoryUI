@@ -64,6 +64,7 @@ BPetButton = {
 
 		BPetButton.UpdateHotkey(button)
 		BPetButton.SetScripts(button)
+		if HoryUI.SkinActionButton then HoryUI.SkinActionButton(button) end   -- HoryUI: flat Garnet skin
 
 		return button
 	end,
@@ -143,12 +144,8 @@ BPetButton = {
 				SetDesaturation(icon, true)
 			end
 			icon:Show()
-			button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
-			getglobal(button:GetName().."NormalTexture2"):SetVertexColor(1, 1, 1, 1)
 		else
 			icon:Hide()
-			button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot")
-			getglobal(button:GetName().."NormalTexture2"):SetVertexColor(1, 1, 1, 0.5)
 		end
 
 		if not isToken then

@@ -64,6 +64,7 @@ BActionButton = {
 
 		BActionButton.UpdateHotkey(button)
 		BActionButton.SetScripts(button)
+		if HoryUI.SkinActionButton then HoryUI.SkinActionButton(button) end   -- HoryUI: flat Garnet skin
 
 		return button
 	end,
@@ -198,19 +199,16 @@ BActionButton = {
 		local icon = getglobal(buttonName.."Icon")
 		local buttonCooldown = getglobal(buttonName.."Cooldown")
 
+		-- HoryUI: flat skin owns the border (see bongos/skin.lua); no quickslot bevel
 		if texture then
 			icon:SetTexture(texture)
 			icon:Show()
 			button.rangeTimer = TOOLTIP_UPDATE_TIME
-			button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
-			getglobal(buttonName.."NormalTexture"):SetVertexColor(1, 1, 1, 1)
 		else
 			icon:Hide()
 			buttonCooldown:Hide()
 			button.rangeTimer = nil
 			getglobal(buttonName.."HotKey"):SetVertexColor(0.6, 0.6, 0.6)
-			button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot")
-			getglobal(buttonName.."NormalTexture"):SetVertexColor(1, 1, 1, 0.4)
 		end
 
 		--update count

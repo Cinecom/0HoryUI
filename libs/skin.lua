@@ -505,3 +505,69 @@ function HoryUI.MakeMovable(frame, blacklist)
   frame:SetScript("OnDragStart", function() if oldStart then oldStart() end this:StartMoving() end)
   frame:SetScript("OnDragStop", function() if oldStop then oldStop() end this:StopMovingOrSizing() end)
 end
+
+-- Flat Garnet skin for a Bongos action / pet / class button (the ability buttons).
+-- Replaces the chunky UI-Quickslot bevel with a 1px bordered backdrop, crops the icon
+-- flush, and restyles hotkey / count / macro text into the HoryUI fonts. Idempotent.
+-- The engine re-applies the quickslot border in its per-button Update(); those lines
+-- are stripped in bongos/actionbar/{actionBar,petBar}/button.lua so the flat look
+-- sticks. Lives here (always-loaded lib) so a plain /reload picks it up.
+function HoryUI.SkinActionButton(button)
+  if not button or button.horySkinned then return end
+  button.horySkinned = true
+  local C = HoryUI.color
+  local n = button:GetName()
+
+  -- flat 1px bordered near-black backdrop behind the button = the slot frame
+  if not button.backdrop then HoryUI.CreateBackdrop(button) end
+
+  -- crop + fill the icon so it sits flush inside the thin border
+  local icon = n and getglobal(n .. "Icon")
+  if icon then
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon:SetAllPoints(button)
+  end
+
+  -- kill the chunky normal texture -- the flat backdrop is the border now
+  local nt = button:GetNormalTexture()
+  if nt then nt:SetTexture(""); nt:SetVertexColor(0, 0, 0, 0) end
+
+  -- pushed = subtle dark press; highlight = garnet wash; checked = garnet fill
+  button:SetPushedTexture(HoryUI.tex.white)
+  local pt = button:GetPushedTexture()
+  if pt then pt:SetVertexColor(0, 0, 0, 0.3); pt:SetAllPoints(button) end
+
+  button:SetHighlightTexture(HoryUI.tex.white)
+  local hl = button:GetHighlightTexture()
+  if hl then hl:SetVertexColor(C.accent_hi[1], C.accent_hi[2], C.accent_hi[3], 0.25); hl:SetAllPoints(button) end
+
+  local ck = button:GetCheckedTexture()
+  if ck then ck:SetTexture(HoryUI.tex.white); ck:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.55); ck:SetAllPoints(button) end
+
+  -- hotkey: small tabular number, muted, tucked top-right
+  local hk = n and getglobal(n .. "HotKey")
+  if hk then
+    HoryUI.SetFont(hk, HoryUI.font.number, 9, "OUTLINE")
+    hk:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
+    hk:ClearAllPoints(); hk:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -2)
+  end
+
+  -- stack count: tabular number, white, bottom-right
+  local ct = n and getglobal(n .. "Count")
+  if ct then
+    HoryUI.SetFont(ct, HoryUI.font.number, 11, "OUTLINE")
+    ct:SetTextColor(C.text[1], C.text[2], C.text[3])
+    ct:ClearAllPoints(); ct:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+  end
+
+  -- macro name: tiny + muted (premium-minimal); hide via Actionbars > Macro text
+  local nm = n and getglobal(n .. "Name")
+  if nm then
+    HoryUI.SetFont(nm, HoryUI.font.normal, 8, "OUTLINE")
+    nm:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
+  end
+
+  -- equipped-item indicator: tone the loud green border down to a subtle gold
+  local bd = n and getglobal(n .. "Border")
+  if bd then bd:SetVertexColor(C.energy[1], C.energy[2], C.energy[3], 0.8) end
+end

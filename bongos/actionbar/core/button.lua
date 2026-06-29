@@ -40,6 +40,8 @@ BBasicActionButton = {
 		local cooldown = CreateFrame("Model", name .. "Cooldown", button, "CooldownFrameTemplate")
 		cooldown:SetAllPoints(button)
 
+		if HoryUI.SkinActionButton then HoryUI.SkinActionButton(button) end   -- HoryUI: flat Garnet skin (class/stance bar)
+
 		return button
 	end,
 
