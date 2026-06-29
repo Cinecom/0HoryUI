@@ -2,8 +2,6 @@
 
 A lightweight, premium-minimal combat HUD for **World of Warcraft 1.12 (vanilla / Turtle WoW)**, built specifically for the **Rogue** class. Calm out of combat, instantly readable in combat — flat 1px borders, near-black panels, one deep Horde-red accent ("Garnet").
 
-> Action bars are intentionally out of scope (pairs well with Bongos).
-
 ## Requirements
 
 | | |
