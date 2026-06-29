@@ -30,24 +30,9 @@ BActionButton = {
 	--Create an Action Button with the given ID and parent
 	Create = function(id, parent)
 		local name = "BActionButton" .. id
-		local button
-		if BongosSets.dontReuse then
-			button = CreateFrame("CheckButton", name, parent, "ActionButtonTemplate")
-		else
-			if id <= 12 then
-				button = ReuseAndRename("ActionButton" .. id, name, parent)
-			elseif id <= 24 then
-				button = ReuseAndRename("MultiBarBottomLeftButton" .. id-12, name, parent)
-			elseif id <= 36 then
-				button = ReuseAndRename("MultiBarBottomRightButton" .. id-24, name, parent)
-			elseif id <= 48 then
-				button = ReuseAndRename("MultiBarRightButton" .. id-36, name, parent)
-			elseif id <= 60 then
-				button = ReuseAndRename("MultiBarLeftButton" .. id-48, name, parent)
-			else
-				button = CreateFrame("CheckButton", name, parent, "ActionButtonTemplate")
-			end
-		end
+		-- HoryUI: always create fresh buttons (the "reuse Blizzard buttons" option +
+		-- functionality were removed; ReuseAndRename is no longer used).
+		local button = CreateFrame("CheckButton", name, parent, "ActionButtonTemplate")
 		button:SetID(id)
 
 		getglobal(button:GetName() .. "Icon"):SetTexCoord(0.06,0.94,0.06,0.94)
@@ -199,16 +184,19 @@ BActionButton = {
 		local icon = getglobal(buttonName.."Icon")
 		local buttonCooldown = getglobal(buttonName.."Cooldown")
 
-		-- HoryUI: flat skin owns the border (see bongos/skin.lua); no quickslot bevel
+		-- HoryUI: flat skin owns the border (libs/skin.lua); no quickslot bevel.
+		-- Unused (empty) slots fade their backdrop so populated buttons stand out.
 		if texture then
 			icon:SetTexture(texture)
 			icon:Show()
 			button.rangeTimer = TOOLTIP_UPDATE_TIME
+			if button.backdrop then button.backdrop:SetAlpha(1) end
 		else
 			icon:Hide()
 			buttonCooldown:Hide()
 			button.rangeTimer = nil
 			getglobal(buttonName.."HotKey"):SetVertexColor(0.6, 0.6, 0.6)
+			if button.backdrop then button.backdrop:SetAlpha(0.2) end
 		end
 
 		--update count

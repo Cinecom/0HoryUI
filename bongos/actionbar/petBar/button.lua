@@ -144,8 +144,10 @@ BPetButton = {
 				SetDesaturation(icon, true)
 			end
 			icon:Show()
+			if button.backdrop then button.backdrop:SetAlpha(1) end
 		else
 			icon:Hide()
+			if button.backdrop then button.backdrop:SetAlpha(0.2) end   -- HoryUI: fade empty slot
 		end
 
 		if not isToken then

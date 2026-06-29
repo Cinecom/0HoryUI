@@ -504,7 +504,6 @@ HoryUI:RegisterModule("config", true, function()
     { "Hotkey text",        function() return ag() and BActionSets_HotkeysShown() end,     function(v) BActionSets_SetHotkeys(v) end },
     { "Macro text",         function() return ag() and BActionSets_MacrosShown() end,      function(v) BActionSets_SetMacroText(v) end },
     { "RMB self-cast",      function() return ag() and BActionSets_RightClickSelfCasts() end, function(v) BActionSets_SetRightClickSelfCast(v) end },
-    { "Reuse Bliz buttons", function() return BongosSets and not BongosSets.dontReuse end,  function(v) Bongos_Reuse(v) end },
   }
   local gCheckObjs = {}
   for i = 1, getn(gChecks) do
@@ -558,17 +557,12 @@ HoryUI:RegisterModule("config", true, function()
     ShowUIPanel(ColorPickerFrame)
   end)
 
-  local numSlider = HoryUI.CreateSlider(pGlobal, 150)
-  numSlider:SetPoint("TOPLEFT", pGlobal, "TOPLEFT", 0, -150)
-
   local function RefreshGlobal()
     for i = 1, getn(gCheckObjs) do gCheckObjs[i].Refresh() end
     scDD.SetValue(BActionSets_GetSelfCastMode() or 0)
     qmDD.SetValue(BActionSets_GetQuickMoveMode() or 0)
     local r, g, b = BActionSets_GetRangeColor()
     swatch.tex:SetVertexColor(r or 1, g or 0.5, b or 0.5)
-    numSlider.Configure("Action bars", 1, 12, 1, BActionBar.GetNumber(),
-      function(v) BActionBar.SetNumber(v) end)
   end
 
   -- ---- Bars ----  (per-bar show/hide)

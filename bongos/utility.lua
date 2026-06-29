@@ -73,18 +73,8 @@ function Bongos_SetStickyBars(enable)
 	BBar.ForAll(BBar.Reanchor)
 end
 
---enable/disable reusing blizzard created buttons and stuff
---enabling saves memory, but may cause addon conflicts
-function Bongos_Reuse(enable)
-	if enable then
-		BongosSets.dontReuse = nil
-		BMsg(BONGOS_REUSE_ENABLED)
-	else
-		BongosSets.dontReuse = 1
-		BMsg(BONGOS_REUSE_DISABLED)
-	end
-	ReloadUI()
-end
+-- HoryUI: "reuse Blizzard buttons" removed (option + functionality). HoryUI always
+-- creates fresh action buttons (dontReuse stays set), so the reuse path never runs.
 
 --Adds a new panel to the options menu when its loaded
 function Bongos_AddOptionsPanel(title, frameName, OnShowAction)
