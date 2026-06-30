@@ -7,6 +7,9 @@ HoryUI.panels = HoryUI.panels or {}
 HoryUI.refreshers = HoryUI.refreshers or {}
 HoryUI.locked = true
 HoryUI.showAll = false
+-- grid overlay 
+HoryUI.gridShown = false
+HoryUI.gridSpacing = 24
 
 function HoryUI.AddRefresher(fn)
   table.insert(HoryUI.refreshers, fn)
@@ -71,4 +74,57 @@ function HoryUI.SetLocked(v)
     end
   end
   HoryUI.Refresh()
+end
+
+function HoryUI.SetShowGrid(v)
+  HoryUI.gridShown = v and true or false
+  HoryUIDB.gridShown = HoryUI.gridShown
+  if HoryUI.gridShown then
+    if HoryUI.gridFrame then HoryUI.gridFrame:Hide(); HoryUI.gridFrame = nil end
+    HoryUI.gridFrame = CreateFrame("Frame", nil, UIParent)
+    HoryUI.gridFrame:SetAllPoints(UIParent)
+    HoryUI.gridFrame:SetFrameStrata("MEDIUM")
+    local w = HoryUI.gridFrame:GetRight() - HoryUI.gridFrame:GetLeft()
+    local h = HoryUI.gridFrame:GetTop() - HoryUI.gridFrame:GetBottom()
+    local s = HoryUI.gridSpacing
+    local a = HoryUI.color.accent
+    local alpha = 0.5
+    for x = 0, w, s do
+      local line = CreateFrame("Frame", nil, HoryUI.gridFrame)
+      line:SetWidth(1)
+      line:SetHeight(h)
+      line:SetPoint("TOPLEFT", HoryUI.gridFrame, "TOPLEFT", x, 0)
+      line:SetBackdrop({
+        bgFile = HoryUI.tex.white,
+        edgeFile = nil,
+        tile = false, tileSize = 0, edgeSize = 0,
+      })
+      line:SetBackdropColor(a[1], a[2], a[3], alpha)
+    end
+    for y = 0, h, s do
+      local line = CreateFrame("Frame", nil, HoryUI.gridFrame)
+      line:SetWidth(w)
+      line:SetHeight(1)
+      line:SetPoint("TOPLEFT", HoryUI.gridFrame, "TOPLEFT", 0, -y)
+      line:SetBackdrop({
+        bgFile = HoryUI.tex.white,
+        edgeFile = nil,
+        tile = false, tileSize = 0, edgeSize = 0,
+      })
+      line:SetBackdropColor(a[1], a[2], a[3], alpha)
+    end
+    HoryUI.gridFrame:Show()
+  else
+    if HoryUI.gridFrame then
+      HoryUI.gridFrame:Hide()
+    end
+  end
+end
+
+function HoryUI.HideGridVisual()
+  if HoryUI.gridFrame then HoryUI.gridFrame:Hide() end
+end
+
+function HoryUI.ShowGridVisual()
+  if HoryUI.gridShown then HoryUI.SetShowGrid(true) end
 end
