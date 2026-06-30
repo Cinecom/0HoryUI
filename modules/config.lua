@@ -264,6 +264,7 @@ HoryUI:RegisterModule("config", true, function()
     { id = "raid",         name = "Raid Frames" },
     { id = "xprep",        name = "XP / Reputation Bar" },
     { id = "weaponpoison", name = "Weapon Poison" },
+    { id = "cooldowntext", name = "Cooldown Text" },
     { id = "chat",         name = "Chat Tweaks" },
     { id = "minimap",      name = "Minimap" },
     { id = "bags",         name = "Bags (one-bag)" },

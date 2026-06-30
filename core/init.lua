@@ -3,7 +3,7 @@
 -- Lua 5.0 / WoW 1.12 only -- see CLAUDE.md before editing.
 
 HoryUI = HoryUI or {}
-HoryUI.version = "0.2.2"
+HoryUI.version = "0.2.5"
 
 -- A plain white texture that reliably exists on the 1.12 client.
 -- Tinted via SetVertexColor / SetStatusBarColor / SetBackdropColor.
