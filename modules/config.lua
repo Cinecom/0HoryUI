@@ -143,6 +143,32 @@ HoryUI:RegisterModule("config", true, function()
   unlockLbl:SetTextColor(C.text[1], C.text[2], C.text[3])
   Desc("Reveal the movers, drag panels into place, then toggle off.", unlock, -6)
 
+  local showGrid = HoryUI.CreateToggle(general,
+  function() return HoryUI.gridShown end,
+  function(v) HoryUI.SetShowGrid(v) end)
+  showGrid:SetPoint("LEFT", unlock, "RIGHT", 136, 0)
+  showGrid:Hide()
+
+  local gridLbl = general:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(gridLbl, HoryUI.font.normal, 12, "OUTLINE")
+  gridLbl:SetPoint("LEFT", showGrid, "RIGHT", 8, 0)
+  gridLbl:SetText("Show grid")
+  gridLbl:SetTextColor(C.text[1], C.text[2], C.text[3])
+  gridLbl:Hide()
+
+  HoryUI.AddRefresher(function()
+    if HoryUI.locked then
+      showGrid:Hide()
+      gridLbl:Hide()
+      HoryUI.HideGridVisual()
+    else
+      showGrid:Show()
+      gridLbl:Show()
+      HoryUI.ShowGridVisual()
+    end
+    if showGrid.Refresh then showGrid.Refresh() end
+  end)
+
   local reset = HoryUI.CreateButton(general, "Reset positions",
     function() HoryUIDB.pos = {}; ReloadUI() end)
   reset:SetWidth(130)
