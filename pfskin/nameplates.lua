@@ -187,6 +187,7 @@ pfSkin:RegisterModule("nameplates", "vanilla", function ()
 
   local UNIT_FLAG_IN_COMBAT = 524288  -- 0x00080000
   local NULL_GUID           = "0x0000000000000000"
+  local COMBAT_DROP         = 5        -- HoryUI: ~secs a player stays in combat after last action
 
   local function RebuildRaidGuidCache()
     for k in pairs(raidGuidCache) do raidGuidCache[k] = nil end
@@ -1554,7 +1555,38 @@ end
     -- Event updates bypass throttle
     if not hasEventUpdate and (nameplate.lasttick or 0) + throttle > now then return end
     nameplate.lasttick = now
-    
+
+    -- HoryUI: PvP combat-drop countdown for enemy players. Counts down from
+    -- COMBAT_DROP and resets on each fresh interaction (the unit's health
+    -- changing) and on combat start; holds at 0.0 while still flagged. Reads the
+    -- combat flag + health via Nampower GetUnitField on the plate's guid.
+    if guid and GetUnitField and nameplate.cache and nameplate.cache.player == "PLAYER"
+       and UnitCanAttack("player", guid) and HasFlag(GetUnitField(guid, "flags") or 0, UNIT_FLAG_IN_COMBAT) then
+      local hp = GetUnitField(guid, "health")
+      if not nameplate.cbActive then
+        nameplate.cbLast = now            -- combat just started
+        nameplate.cbHp = hp
+        nameplate.cbActive = true
+      elseif hp and hp ~= nameplate.cbHp then
+        nameplate.cbLast = now            -- health changed = interaction
+        nameplate.cbHp = hp
+      end
+      if not nameplate.combattext then
+        nameplate.combattext = nameplate:CreateFontString(nil, "OVERLAY")
+        local cf, cs, cfl = nameplate.level:GetFont()
+        nameplate.combattext:SetFont(cf or pfSkin.font_default, cs or 9, cfl)
+        nameplate.combattext:SetTextColor(1, 0.55, 0.2)
+        nameplate.combattext:SetPoint("BOTTOMRIGHT", nameplate.health, "TOPRIGHT", 0, 2)
+      end
+      local remaining = COMBAT_DROP - (now - (nameplate.cbLast or now))
+      if remaining < 0 then remaining = 0 end
+      nameplate.combattext:SetText(string.format("%.1f", remaining))
+      nameplate.combattext:Show()
+    else
+      nameplate.cbActive = nil
+      if nameplate.combattext then nameplate.combattext:Hide() end
+    end
+
     -- =========================================================================
     -- EVERYTHING BELOW RUNS AT THROTTLED RATE (50 FPS target, 10 FPS others)
     -- =========================================================================
