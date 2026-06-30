@@ -37,9 +37,12 @@ A lightweight, premium-minimal combat HUD for **World of Warcraft 1.12 (vanilla 
 
 ## Install
 
-1. Copy the `!HoryUI` folder into `Interface/AddOns/` (the leading `!` makes it load first, so it can time every other addon).
-2. Restart the client (the `.toc` is only scanned at launch).
-3. Type `/hui` in-game to open settings; unlock to reposition panels.
+1. Download **`0HoryUI-vX.Y.Z.zip`** from the [latest release](https://github.com/Cinecom/0HoryUI/releases/latest) — **not** the green "Code → Download ZIP" / "Source code" button.
+2. Extract it and move the `0HoryUI` folder into `Interface/AddOns/`. The folder **must** be named `0HoryUI` (the leading `0` sorts it ahead of letter-named addons so it can time them, and WoW requires the folder name to match the `.toc`).
+3. Restart the client (the `.toc` is only scanned at launch).
+4. Type `/hui` in-game to open settings; unlock to reposition panels.
+
+> If you grabbed the source zip instead, it extracts to a folder named `0HoryUI-main` — WoW won't load it. Rename that folder to `0HoryUI` before moving it into `Interface/AddOns/`.
 
 ## License
 

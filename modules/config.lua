@@ -37,7 +37,7 @@ HoryUI:RegisterModule("config", true, function()
   brandSub:SetText("settings")
   brandSub:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
 
-  local ver = (GetAddOnMetadata and GetAddOnMetadata("!HoryUI", "Version")) or HoryUI.version
+  local ver = (GetAddOnMetadata and GetAddOnMetadata("0HoryUI", "Version")) or HoryUI.version
   local hver = win:CreateFontString(nil, "OVERLAY")
   HoryUI.SetFont(hver, HoryUI.font.number, 10, "OUTLINE")
   hver:SetPoint("TOPRIGHT", win, "TOPRIGHT", -30, -13)
@@ -353,7 +353,7 @@ HoryUI:RegisterModule("config", true, function()
   -- =========================================================================
   -- content : Load Times  (per-addon startup file-load cost, ms)
   -- =========================================================================
-  -- Data comes from core\loadtimer.lua (built in): !HoryUI loads first and records
+  -- Data comes from core\loadtimer.lua (built in): 0HoryUI loads first and records
   -- debugprofilestop() at each ADDON_LOADED, so it can time every addon. We only
   -- READ its globals here -- if they're missing we say so rather than invent numbers.
   local loadtab = CreateFrame("Frame", nil, win)
@@ -411,7 +411,7 @@ HoryUI:RegisterModule("config", true, function()
       return
     end
     if not src or getn(src) == 0 then
-      loadMsg:SetText("No load-time data yet. Make sure the addon folder is named \"!HoryUI\" so it loads first, then Reload & Measure.")
+      loadMsg:SetText("No load-time data yet. Make sure the addon folder is named \"0HoryUI\" so it loads first, then Reload & Measure.")
       loadMsg:Show(); loadSum:SetText(""); loadList.SetTotal(0)
       return
     end
@@ -657,7 +657,7 @@ HoryUI:RegisterModule("config", true, function()
   fdiv:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", 12, 34)
   fdiv:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -12, 34)
 
-  local auth = (GetAddOnMetadata and GetAddOnMetadata("!HoryUI", "Author")) or "Horyoshi"
+  local auth = (GetAddOnMetadata and GetAddOnMetadata("0HoryUI", "Author")) or "Horyoshi"
   local footer = win:CreateFontString(nil, "OVERLAY")
   HoryUI.SetFont(footer, HoryUI.font.normal, 10, "OUTLINE")
   footer:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", 14, 12)

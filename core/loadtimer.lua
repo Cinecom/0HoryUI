@@ -1,10 +1,12 @@
 -- HoryUI :: per-addon load timing (built in)
 --
--- !HoryUI loads FIRST (the "!" sorts its folder ahead of letters), so this file --
--- the first one in the .toc -- registers ADDON_LOADED before any other addon and
--- can time every one of them. (When the addon was plain "HoryUI" it loaded at "H"
--- and missed everything before it, which is why a separate "!HoryUILoadTimer"
+-- 0HoryUI loads early -- a leading "0" sorts its folder ahead of every letter-named
+-- addon -- so this file (the first one in the .toc) registers ADDON_LOADED before
+-- those addons and can time them. (When the addon was plain "HoryUI" it loaded at "H"
+-- and missed everything before it, which is why a separate "HoryUILoadTimer"
 -- companion used to exist; folding the timer in here removed that second addon.)
+-- Note: addons whose folder begins with "!" still load before this one; "0" was
+-- chosen over "!" so the GitHub repo name can match the folder name.
 --
 -- HOW: debugprofilestop() is a high-resolution millisecond wall clock that keeps
 -- advancing during the synchronous load (unlike GetTime(), which is the frame clock
@@ -29,7 +31,7 @@ if not prof then
   return
 end
 
-local SELF = "!HoryUI"
+local SELF = "0HoryUI"
 local prev = prof()                                            -- our own load = the baseline
 
 local f = CreateFrame("Frame", "HoryUILoadTimerFrame")

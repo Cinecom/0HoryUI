@@ -2,7 +2,7 @@
 ## Title: HoryUI
 ## Notes: Minimal premium rogue HUD for WoW 1.12 (Garnet)
 ## Author: Horyoshi
-## Version: 0.2.3
+## Version: 0.2.4
 ## SavedVariables: HoryUIDB, BongosProfiles
 ## SavedVariablesPerCharacter: BongosSets, BActionSets, BStanceSets, BContextSets
 

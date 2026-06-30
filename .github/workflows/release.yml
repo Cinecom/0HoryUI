@@ -1,0 +1,41 @@
+name: Package release
+
+# Builds a ready-to-install addon zip whenever a version tag is pushed.
+# The zip contains a top-level "0HoryUI/" folder (matching 0HoryUI.toc) so users
+# can drop it straight into Interface/AddOns/. The leading "0" sorts the folder
+# ahead of letter-named addons (so the built-in load timer can time them) while
+# still being a legal GitHub repo/folder name.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build addon zip
+        run: |
+          # git archive ships only tracked files (dev/, CLAUDE.md, .fxref/ are
+          # gitignored and excluded automatically) under the required folder name.
+          git archive --prefix='0HoryUI/' --format=zip -o "0HoryUI-${{ github.ref_name }}.zip" HEAD
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "0HoryUI-${{ github.ref_name }}.zip"
+          name: "HoryUI ${{ github.ref_name }}"
+          body: |
+            Download **`0HoryUI-${{ github.ref_name }}.zip`** below, extract it, and
+            move the `0HoryUI` folder into `Interface/AddOns/`. Restart the client.
+
+            Do **not** use the green "Source code (zip)" assets — those extract to a
+            folder named `0HoryUI-…`, which WoW won't load (the folder name must be
+            exactly `0HoryUI`).
