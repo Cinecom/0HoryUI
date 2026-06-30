@@ -449,3 +449,65 @@ function HoryUI.CreateSlider(parent, width)
 
   return s
 end
+
+-- A reusable Garnet confirmation modal. Confirm(text, onAccept[, acceptLabel]):
+-- darkens the screen with a click-blocker (so the choice is truly modal), shows
+-- `text` centred with Confirm / Cancel, and runs onAccept() ONLY on Confirm.
+-- One shared frame, reused across calls.
+function HoryUI.Confirm(text, onAccept, acceptLabel)
+  local C = HoryUI.color
+  local d = HoryUI._confirm
+  if not d then
+    -- fullscreen click-blocker behind the dialog, dimming + eating clicks so the
+    -- window underneath can't be touched until the user chooses
+    local blocker = CreateFrame("Frame", nil, UIParent)
+    blocker:SetAllPoints(UIParent)
+    blocker:SetFrameStrata("FULLSCREEN_DIALOG")
+    blocker:EnableMouse(true)
+    blocker:SetBackdrop({ bgFile = HoryUI.tex.white, edgeFile = nil, tile = false, tileSize = 0, edgeSize = 0 })
+    blocker:SetBackdropColor(0, 0, 0, 0.55)
+    blocker:Hide()
+
+    d = CreateFrame("Frame", "HoryUIConfirm", UIParent)
+    d:SetWidth(300); d:SetHeight(118)
+    d:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    d:SetFrameStrata("FULLSCREEN_DIALOG")
+    d:SetFrameLevel(blocker:GetFrameLevel() + 10)
+    d:EnableMouse(true)
+    HoryUI.CreateBackdrop(d)
+    d.blocker = blocker
+    tinsert(UISpecialFrames, "HoryUIConfirm")   -- Esc cancels
+
+    d.msg = d:CreateFontString(nil, "OVERLAY")
+    HoryUI.SetFont(d.msg, HoryUI.font.normal, 12, "OUTLINE")
+    d.msg:SetPoint("TOPLEFT", d, "TOPLEFT", 16, -20)
+    d.msg:SetPoint("TOPRIGHT", d, "TOPRIGHT", -16, -20)
+    d.msg:SetJustifyH("CENTER")
+    d.msg:SetTextColor(C.text[1], C.text[2], C.text[3])
+
+    -- Esc / Cancel / Confirm all route through Hide -> OnHide tears down state
+    d:SetScript("OnHide", function() d.blocker:Hide(); d.onAccept = nil end)
+
+    d.accept = HoryUI.CreateButton(d, "Confirm", function()
+      local fn = d.onAccept
+      d:Hide()
+      if fn then fn() end
+    end)
+    d.accept:SetWidth(94)
+    d.accept:SetPoint("BOTTOMLEFT", d, "BOTTOM", 6, 14)
+    d.accept.text:SetTextColor(C.accent_hi[1], C.accent_hi[2], C.accent_hi[3])  -- garnet = primary
+
+    d.cancel = HoryUI.CreateButton(d, "Cancel", function() d:Hide() end)
+    d.cancel:SetWidth(94)
+    d.cancel:SetPoint("BOTTOMRIGHT", d, "BOTTOM", -6, 14)
+
+    HoryUI._confirm = d
+  end
+
+  d.onAccept = onAccept
+  d.msg:SetText(text or "Are you sure?")
+  d.accept.text:SetText(acceptLabel or "Confirm")
+  d.blocker:Show()
+  d:Show()
+  d:Raise()
+end

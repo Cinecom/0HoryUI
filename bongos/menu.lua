@@ -70,6 +70,7 @@ local function Build()
     chk:SetWidth(166)
     m.checks[i] = chk
   end
+  m.checks[1].text:SetText("Hide bar")   -- slot 1 is always the hide toggle (static label)
 
   -- 5 reconfigurable sliders.  size/rows/spacing come from opts; scale/opacity
   -- are generic.  onChange relayouts then refreshes (size can change rows' max).

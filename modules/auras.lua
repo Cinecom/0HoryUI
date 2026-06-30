@@ -202,24 +202,35 @@ HoryUI:RegisterModule("auras", true, function()
     return "Interface\\Icons\\INV_Misc_QuestionMark"
   end
 
-  local function Scan(guid, fromSlot, toSlot, icons)
+  -- `track` (the active tracking texture) is passed for the BUFF scan so the
+  -- player's profession-tracking aura (Find Herbs/Minerals/...) is filtered out
+  -- when the target is the player -- its only home is the minimap left-border
+  -- square (modules/minimap.lua). `ordinal` is the true UnitBuff/UnitDebuff index
+  -- (it counts skipped auras) so tooltips still resolve to the right aura.
+  local function Scan(guid, fromSlot, toSlot, icons, track)
     local auras = guid and GetUnitField(guid, "aura")
     local stacks = guid and GetUnitField(guid, "auraApplications")
-    local shown = 0
+    local shown, ordinal = 0, 0
     local total = table.getn(icons)
     if auras then
       for slot = fromSlot, toSlot do
         local spellId = auras[slot]
         if spellId and spellId > 0 and shown < total then
-          shown = shown + 1
-          local ic = icons[shown]
-          ic.auraIndex = shown            -- == UnitBuff/UnitDebuff ordinal (for tooltip)
-          ic.tex:SetTexture(IconTexture(spellId))
-          local st = stacks and stacks[slot]
-          if st and st > 1 then ic.count:SetText(st) else ic.count:SetText("") end
-          local tl = AuraTimeLeft(guid, spellId)
-          if tl then SetTimer(ic.timer, tl) else ic.timer:SetText("") end
-          ic:Show()
+          ordinal = ordinal + 1
+          local tex = IconTexture(spellId)
+          if track and tex == track then
+            -- tracking buff: never shown here (lives on the minimap only)
+          else
+            shown = shown + 1
+            local ic = icons[shown]
+            ic.auraIndex = ordinal       -- == UnitBuff/UnitDebuff ordinal (for tooltip)
+            ic.tex:SetTexture(tex)
+            local st = stacks and stacks[slot]
+            if st and st > 1 then ic.count:SetText(st) else ic.count:SetText("") end
+            local tl = AuraTimeLeft(guid, spellId)
+            if tl then SetTimer(ic.timer, tl) else ic.timer:SetText("") end
+            ic:Show()
+          end
         end
       end
     end
@@ -313,8 +324,9 @@ HoryUI:RegisterModule("auras", true, function()
     ScanPlayerBuffs(pbuffs.icons)
     if UnitExists("target") then
       local tguid = HoryUI.np.GUID("target")
-      Scan(tguid, 33, 48, tdebuffs.icons)   -- target debuffs
-      Scan(tguid, 1, 32, tbuffs.icons)      -- target buffs
+      local track = GetTrackingTexture and GetTrackingTexture()
+      Scan(tguid, 33, 48, tdebuffs.icons)          -- target debuffs (no tracking filter)
+      Scan(tguid, 1, 32, tbuffs.icons, track)      -- target buffs (filter tracking)
     else
       for i = 1, table.getn(tdebuffs.icons) do tdebuffs.icons[i]:Hide() end
       for i = 1, table.getn(tbuffs.icons) do tbuffs.icons[i]:Hide() end

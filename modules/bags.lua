@@ -132,9 +132,10 @@ HoryUI:RegisterModule("bags", true, function()
   close:SetWidth(HEADER - 4); close:SetHeight(HEADER - 4)
   close:SetPoint("TOPRIGHT", bag, "TOPRIGHT", -PAD + 2, -PAD + 2)
 
-  -- a tiny labelled square control (keyring / sort / col steppers) ------------
-  local function MakeControl(label, tip, onclick, w)
-    local b = HoryUI.CreateButton(bag, label, onclick)
+  -- a tiny labelled square control (menu / keyring / sort / col steppers) ------
+  -- parent defaults to the bag; the popup-menu controls pass `menu` as parent.
+  local function MakeControl(label, tip, onclick, w, parent)
+    local b = HoryUI.CreateButton(parent or bag, label, onclick)
     b:SetWidth(w or (HEADER - 4)); b:SetHeight(HEADER - 4)
     local oe, ol = b:GetScript("OnEnter"), b:GetScript("OnLeave")
     b:SetScript("OnEnter", function()
@@ -148,31 +149,31 @@ HoryUI:RegisterModule("bags", true, function()
     return b
   end
 
-  -- defined below; the header controls need forward references to them
-  local Relayout, SortBags
+  -- defined below; the header + popup-menu controls need forward references
+  local Relayout, SortBags, PaintQuality
+  local menu, RefreshBagIcons, HighlightBag, ClearHighlight
+  local colDown, colNum, colUp, PaintKey
 
-  -- column steppers ( - [n] + )
-  local colDown = MakeControl("-", "Fewer columns", function()
-    HoryUIDB.bagCols = Cols() - 1
-    if HoryUIDB.bagCols < MINCOL then HoryUIDB.bagCols = MINCOL end
-    if Relayout then Relayout() end
+  -- menu button (top-left) -- opens the options popup (columns / sort / bag icons)
+  local menuBtn = MakeControl("", "Bag options", function()
+    if menu:IsShown() then
+      menu:Hide()
+    else
+      if RefreshBagIcons then RefreshBagIcons() end
+      menu:Show()
+    end
   end)
-  colDown:SetPoint("TOPLEFT", bag, "TOPLEFT", PAD, -PAD + 2)
+  menuBtn:SetPoint("TOPLEFT", bag, "TOPLEFT", PAD, -PAD + 2)
+  -- hamburger glyph (three flat rules) so the button reads as a menu affordance
+  for i = 1, 3 do
+    local ln = menuBtn:CreateTexture(nil, "OVERLAY")
+    ln:SetTexture("Interface\\Buttons\\WHITE8X8")
+    ln:SetVertexColor(C.text2[1], C.text2[2], C.text2[3], 1)
+    ln:SetWidth(8); ln:SetHeight(2)
+    ln:SetPoint("CENTER", menuBtn, "CENTER", 0, (2 - i) * 3)
+  end
 
-  local colNum = bag:CreateFontString(nil, "OVERLAY")
-  HoryUI.SetFont(colNum, HoryUI.font.number, 11, "OUTLINE")
-  colNum:SetPoint("LEFT", colDown, "RIGHT", 4, 0)
-  colNum:SetTextColor(C.text[1], C.text[2], C.text[3])
-  colNum:SetWidth(18); colNum:SetJustifyH("CENTER")
-
-  local colUp = MakeControl("+", "More columns", function()
-    HoryUIDB.bagCols = Cols() + 1
-    if HoryUIDB.bagCols > MAXCOL then HoryUIDB.bagCols = MAXCOL end
-    if Relayout then Relayout() end
-  end)
-  colUp:SetPoint("LEFT", colNum, "RIGHT", 4, 0)
-
-  -- search box (between the column steppers and the keyring/sort cluster)
+  -- search box (between the menu button and the close button)
   local searchBox = CreateFrame("EditBox", "HoryUIBagSearch", bag)
   searchBox:SetHeight(HEADER - 6)
   searchBox:SetAutoFocus(false)
@@ -187,31 +188,8 @@ HoryUI:RegisterModule("bags", true, function()
   searchHint:SetText("Search")
   searchHint:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
 
-  -- keyring + sort live to the left of the close button
-  local sortBtn = MakeControl("Sort", "Compact bags (remove gaps)", function()
-    if SortBags then SortBags() end
-  end, 32)
-  sortBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", -4, 0)
-
-  local keyBtn = MakeControl("K", "Toggle keyring", function()
-    if HoryUIDB.showKeyring then HoryUIDB.showKeyring = false else HoryUIDB.showKeyring = true end
-    RebuildContainerList()
-    if Relayout then Relayout() end
-  end)
-  keyBtn:SetPoint("TOPRIGHT", sortBtn, "TOPLEFT", -4, 0)
-  -- highlight the keyring button while active
-  local function PaintKey()
-    if keyBtn.backdrop then
-      if HoryUIDB.showKeyring then
-        keyBtn.backdrop:SetBackdropBorderColor(C.accent[1], C.accent[2], C.accent[3], 1)
-      else
-        keyBtn.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
-      end
-    end
-  end
-
-  searchBox:SetPoint("LEFT", colUp, "RIGHT", 6, 0)
-  searchBox:SetPoint("RIGHT", keyBtn, "LEFT", -6, 0)
+  searchBox:SetPoint("LEFT", menuBtn, "RIGHT", 6, 0)
+  searchBox:SetPoint("RIGHT", close, "LEFT", -6, 0)
   searchBox:SetPoint("TOP", bag, "TOP", 0, -PAD + 1)
 
   -- =========================================================================
@@ -255,9 +233,190 @@ HoryUI:RegisterModule("bags", true, function()
   searchBox:SetScript("OnEditFocusLost", function() searchBox.focused = false; ApplySearch() end)
 
   -- =========================================================================
+  -- options popup: columns + sort + the bag icons ----------------------------
+  -- =========================================================================
+  -- the strip always shows all six containers (backpack / bags 1-4 / keyring);
+  -- hovering one focuses its items, and the keyring icon doubles as its toggle.
+  local STRIP = { 0, 1, 2, 3, 4, KEYRING }
+  local MENUPAD = 8
+  local rowH = HEADER - 4
+  local BAGICON = 24
+  -- the strip's six icons set the menu width; rows above stretch to match.
+  local STRIPW = getn(STRIP) * (BAGICON + GAP) - GAP
+  local MENUW = STRIPW + MENUPAD * 2
+
+  menu = CreateFrame("Frame", "HoryUIBagMenu", bag)
+  menu:SetFrameStrata("DIALOG")
+  menu:EnableMouse(true)               -- swallow clicks so they don't reach slots
+  menu:SetWidth(MENUW)
+  menu:SetHeight(MENUPAD * 2 + (rowH + 6) * 2 + BAGICON)
+  HoryUI.CreateBackdrop(menu)
+  -- ABOVE the bag so it never covers the grid (grows up from the menu button)
+  menu:SetPoint("BOTTOMLEFT", menuBtn, "TOPLEFT", 0, 4)
+  menu:Hide()
+  -- close the popup with the bag (and drop any active highlight)
+  bag:SetScript("OnHide", function() menu:Hide() end)
+
+  -- row y-offsets (each row rowH tall, 6px gap); r3 = the bag-icon strip
+  local r1 = -MENUPAD
+  local r2 = -(MENUPAD + (rowH + 6))
+  local r3 = -(MENUPAD + (rowH + 6) * 2)
+
+  -- columns row: label (left) + steppers ( - [n] + ) on the right
+  local colLabel = menu:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(colLabel, HoryUI.font.normal, 11, "OUTLINE")
+  colLabel:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r1 - 3)
+  colLabel:SetText("Columns")
+  colLabel:SetTextColor(C.text2[1], C.text2[2], C.text2[3])
+
+  colUp = MakeControl("+", "More columns", function()
+    HoryUIDB.bagCols = Cols() + 1
+    if HoryUIDB.bagCols > MAXCOL then HoryUIDB.bagCols = MAXCOL end
+    if Relayout then Relayout() end
+  end, nil, menu)
+  colUp:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -MENUPAD, r1)
+
+  colNum = menu:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(colNum, HoryUI.font.number, 11, "OUTLINE")
+  colNum:SetPoint("RIGHT", colUp, "LEFT", -4, 0)
+  colNum:SetTextColor(C.text[1], C.text[2], C.text[3])
+  colNum:SetWidth(18); colNum:SetJustifyH("CENTER")
+
+  colDown = MakeControl("-", "Fewer columns", function()
+    HoryUIDB.bagCols = Cols() - 1
+    if HoryUIDB.bagCols < MINCOL then HoryUIDB.bagCols = MINCOL end
+    if Relayout then Relayout() end
+  end, nil, menu)
+  colDown:SetPoint("RIGHT", colNum, "LEFT", -4, 0)
+
+  -- sort row (full width)
+  local sortBtn = MakeControl("Sort", "Compact bags (remove gaps)", function()
+    if SortBags then SortBags() end
+  end, nil, menu)
+  sortBtn:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r2)
+  sortBtn:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -MENUPAD, r2)
+
+  -- the always-visible bag-icon strip
+  local bagStrip = CreateFrame("Frame", nil, menu)
+  bagStrip:SetWidth(STRIPW); bagStrip:SetHeight(BAGICON)
+  bagStrip:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r3)
+
+  -- a container is "active" only if it's in the live grid (keyring may be off);
+  -- highlighting an inactive container would dim everything, so guard it.
+  local function ContainerActive(hb)
+    for ci = 1, getn(containers) do
+      if containers[ci] == hb then return true end
+    end
+    return false
+  end
+
+  -- highlight = mark every cell of one bag (garnet border, even when empty) and
+  -- dim the other bags' items so the focused bag pops. Clearing restores the
+  -- quality borders + the search-filter dim state.
+  HighlightBag = function(hb)
+    if not ContainerActive(hb) then return end
+    for ci = 1, getn(containers) do
+      local b = containers[ci]
+      local list = slots[b]
+      for s = 1, getn(list) do
+        local btn = list[s]
+        if btn and btn:IsShown() then
+          if b == hb then
+            if btn.backdrop then btn.backdrop:SetBackdropBorderColor(C.accent_hi[1], C.accent_hi[2], C.accent_hi[3], 1) end
+            if btn.icon then btn.icon:SetAlpha(1) end
+          elseif btn.icon then
+            btn.icon:SetAlpha(0.25)
+          end
+        end
+      end
+    end
+  end
+  ClearHighlight = function()
+    for ci = 1, getn(containers) do
+      local b = containers[ci]
+      local list = slots[b]
+      for s = 1, getn(list) do
+        if list[s] then PaintQuality(list[s]) end
+      end
+    end
+    ApplySearch()
+  end
+
+  -- resting border: garnet for the keyring while it's on, plain dark otherwise
+  local function IconRestColor(b)
+    if b == KEYRING and HoryUIDB.showKeyring then
+      return C.accent[1], C.accent[2], C.accent[3], 1
+    end
+    return 0, 0, 0, 1
+  end
+
+  local bagIcons = {}      -- bagIcons[bag] = Button
+  local function MakeBagIcon(b)
+    local ib = CreateFrame("Button", nil, bagStrip)
+    ib:SetWidth(BAGICON); ib:SetHeight(BAGICON)
+    HoryUI.CreateBackdrop(ib)
+    ib.tex = ib:CreateTexture(nil, "ARTWORK")
+    ib.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    ib.tex:SetPoint("TOPLEFT", ib, "TOPLEFT", 1, -1)
+    ib.tex:SetPoint("BOTTOMRIGHT", ib, "BOTTOMRIGHT", -1, 1)
+    ib:SetScript("OnEnter", function()
+      HighlightBag(b)
+      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(C.accent[1], C.accent[2], C.accent[3], 1) end
+      GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+      if b == 0 then GameTooltip:SetText("Backpack")
+      elseif b == KEYRING then
+        GameTooltip:SetText("Keyring")
+        GameTooltip:AddLine(HoryUIDB.showKeyring and "Click to hide" or "Click to show", 0.7, 0.7, 0.7)
+      else GameTooltip:SetInventoryItem("player", ContainerIDToInventoryID(b)) end
+      GameTooltip:Show()
+    end)
+    ib:SetScript("OnLeave", function()
+      ClearHighlight()
+      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(IconRestColor(b)) end
+      GameTooltip:Hide()
+    end)
+    -- the keyring icon is its own on/off toggle (it replaces the old "K" button)
+    if b == KEYRING then
+      ib:SetScript("OnClick", function()
+        HoryUIDB.showKeyring = not HoryUIDB.showKeyring
+        RebuildContainerList()
+        if Relayout then Relayout() end
+        HighlightBag(KEYRING)        -- re-focus if it's now on (no-op if off)
+      end)
+    end
+    return ib
+  end
+
+  RefreshBagIcons = function()
+    for i = 1, getn(STRIP) do
+      local b = STRIP[i]
+      if not bagIcons[b] then bagIcons[b] = MakeBagIcon(b) end
+      local ib = bagIcons[b]
+      ib:ClearAllPoints()
+      ib:SetPoint("LEFT", bagStrip, "LEFT", (i - 1) * (BAGICON + GAP), 0)
+      local tex
+      if b == 0 then tex = "Interface\\Buttons\\Button-Backpack-Up"
+      elseif b == KEYRING then tex = "Interface\\ContainerFrame\\KeyRing-Bag-Icon"
+      else tex = GetInventoryItemTexture("player", ContainerIDToInventoryID(b)) end
+      ib.tex:SetTexture(tex or "Interface\\Buttons\\Button-Backpack-Up")
+      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(IconRestColor(b)) end
+      ib:Show()
+    end
+  end
+
+  -- keep the keyring icon's active border in sync (called from Relayout)
+  PaintKey = function()
+    if bagIcons[KEYRING] and bagIcons[KEYRING].backdrop then
+      bagIcons[KEYRING].backdrop:SetBackdropBorderColor(IconRestColor(KEYRING))
+    end
+  end
+
+  menu:SetScript("OnHide", function() if ClearHighlight then ClearHighlight() end end)
+
+  -- =========================================================================
   -- item buttons -------------------------------------------------------------
   -- =========================================================================
-  local PaintQuality        -- forward decl (defined after MakeSlot; used by UpdateSlot)
+  -- (PaintQuality is forward-declared up top so ClearHighlight can call it)
 
   local function MakeSlot(b, s)
     local name = "HoryUIBagItem" .. (b == KEYRING and "K" or b) .. "_" .. s
@@ -266,6 +425,11 @@ HoryUI:RegisterModule("bags", true, function()
     btn:SetWidth(SLOT); btn:SetHeight(SLOT)
     btn:SetNormalTexture("")          -- drop the chunky default border art
     HoryUI.CreateBackdrop(btn)
+
+    -- keyring cells get a faint warm (gold) fill so they read as "keys" at a glance
+    if b == KEYRING and btn.backdrop then
+      btn.backdrop:SetBackdropColor(0.15, 0.13, 0.07, HoryUI.bg_alpha)
+    end
 
     -- icon: trim the default art's transparent edge, inset inside our border
     btn.icon = getglobal(name .. "IconTexture")

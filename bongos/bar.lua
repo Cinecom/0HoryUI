@@ -19,13 +19,23 @@ end
 --[[ Drag Button Functions ]]--
 
 local function DragButton_OnMouseDown()
-	this:GetParent():StartMoving()
+	local bar = this:GetParent()
+	-- HoryUI snap-aware drag (replaces Bongos' own sticky/FlyPaper positioning);
+	-- bars now snap to the grid + other bars + HoryUI panels via the shared engine
+	if HoryUI.SnapDragBegin then
+		HoryUI.SnapDragBegin(bar)
+		this:SetScript("OnUpdate", function() HoryUI.SnapDragMove(bar) end)
+	else
+		bar:StartMoving()
+	end
 	GameTooltip:Hide()
 end
 
 local function DragButton_OnMouseUp()
-	this:GetParent():StopMovingOrSizing()
-	BBar.TryToStick(BBar.IDToBar(this:GetText()))
+	local bar = this:GetParent()
+	this:SetScript("OnUpdate", nil)
+	if not HoryUI.SnapDragBegin then bar:StopMovingOrSizing() end
+	BBar.TryToStick(bar)
 end
 
 local function DragButton_OnEnter()
@@ -51,6 +61,9 @@ local function DragButton_Create(parent, id, ShowMenu)
 	button:SetPoint("TOPLEFT", parent, "TOPLEFT", -2, 2)
 	button:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 2, -2)
 	button:SetFrameLevel(parent:GetFrameLevel() + 3)
+	-- sit above HoryUI's marquee catcher (HIGH) so the handle stays grabbable while
+	-- unlocked; the handle only shows when unlocked, so this strata is harmless
+	button:SetFrameStrata("FULLSCREEN_DIALOG")
 	button:SetClampedToScreen(true)
 
 	button:SetTextFontObject(GameFontNormalLarge)
@@ -149,8 +162,11 @@ BBar = {
 
 		barList[id] = bar
 		BBar.LoadSettings(bar)
-		if created and OnCreate then
-			OnCreate(bar)
+		if created then
+			-- let HoryUI's snap engine treat this bar as a snap target (and let the
+			-- bar snap to others). Reused (un-deleted) bars are already registered.
+			if HoryUI.RegisterSnapTarget then HoryUI.RegisterSnapTarget(bar) end
+			if OnCreate then OnCreate(bar) end
 		end
 
 		return bar
@@ -241,20 +257,10 @@ BBar = {
 		getglobal(bar:GetName() .. 'DragButton'):SetAlpha(1)
 	end,
 
-	--try to anchor the bar to any bar its near
+	--save the bar's position after a drag. (Bongos' bar-to-bar "sticky" anchoring
+	--was removed -- HoryUI's snap engine now handles bars sticking to the grid /
+	--each other / panels, driven from the drag button's OnUpdate.)
 	TryToStick = function(bar)
-		if BongosSets.sticky then
-			bar.sets.anchor = nil
-			for _, otherBar in BBar.GetAll() do
-				if otherBar:IsVisible() then
-					local point = FlyPaper.Stick(bar, otherBar, STICKY_TOLERANCE, 2, 2)
-					if point then
-						bar.sets.anchor = otherBar.id .. point
-						break
-					end
-				end
-			end
-		end
 		BBar.SavePosition(bar)
 		UpdateDragButtonColor(bar)
 	end,
@@ -297,12 +303,9 @@ BBar = {
 		bar:SetScale(bar.sets.scale or 1)
 	end,
 
-	--try to reanchor the bar
+	--bars are positioned purely by Reposition (x/y) now that sticky anchoring is gone
 	Reanchor = function(bar)
-		local otherBar, point = BBar.GetAnchor(bar)
-		if not(BongosSets.sticky and otherBar and otherBar:IsVisible() and FlyPaper.StickToPoint(bar, otherBar, point, 2, 2)) then
-			bar.sets.anchor = nil
-		end
+		bar.sets.anchor = nil
 		UpdateDragButtonColor(bar)
 	end,
 

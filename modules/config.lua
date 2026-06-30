@@ -141,7 +141,7 @@ HoryUI:RegisterModule("config", true, function()
   unlockLbl:SetPoint("LEFT", unlock, "RIGHT", 8, 0)
   unlockLbl:SetText("Unlock panels")
   unlockLbl:SetTextColor(C.text[1], C.text[2], C.text[3])
-  Desc("Reveal the movers, drag panels into place, then toggle off.", unlock, -6)
+  Desc("Drag panels, then re-lock.", unlock, -6)
 
   local showGrid = HoryUI.CreateToggle(general,
   function() return HoryUI.gridShown end,
@@ -156,17 +156,36 @@ HoryUI:RegisterModule("config", true, function()
   gridLbl:SetTextColor(C.text[1], C.text[2], C.text[3])
   gridLbl:Hide()
 
+  -- snap toggle sits below Show grid (both are mover aids, shown only unlocked)
+  local snapTgl = HoryUI.CreateToggle(general,
+  function() return HoryUI.snapEnabled end,
+  function(v) HoryUI.SetSnap(v) end)
+  snapTgl:SetPoint("TOPLEFT", showGrid, "BOTTOMLEFT", 0, -10)
+  snapTgl:Hide()
+
+  local snapLbl = general:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(snapLbl, HoryUI.font.normal, 12, "OUTLINE")
+  snapLbl:SetPoint("LEFT", snapTgl, "RIGHT", 8, 0)
+  snapLbl:SetText("Snap to grid")
+  snapLbl:SetTextColor(C.text[1], C.text[2], C.text[3])
+  snapLbl:Hide()
+
   HoryUI.AddRefresher(function()
     if HoryUI.locked then
       showGrid:Hide()
       gridLbl:Hide()
+      snapTgl:Hide()
+      snapLbl:Hide()
       HoryUI.HideGridVisual()
     else
       showGrid:Show()
       gridLbl:Show()
+      snapTgl:Show()
+      snapLbl:Show()
       HoryUI.ShowGridVisual()
     end
     if showGrid.Refresh then showGrid.Refresh() end
+    if snapTgl.Refresh then snapTgl.Refresh() end
   end)
 
   local reset = HoryUI.CreateButton(general, "Reset positions",
@@ -246,7 +265,13 @@ HoryUI:RegisterModule("config", true, function()
 
   local hpSave = HoryUI.CreateButton(general, "Save", function()
     local n = hpName:GetText()
-    if n and n ~= "" then HProfSave(n); hpSel = n; RefreshHProf() end
+    if not n or n == "" then return end
+    local function commit() HProfSave(n); hpSel = n; RefreshHProf() end
+    if HoryUIDB.profiles and HoryUIDB.profiles[n] then
+      HoryUI.Confirm('Overwrite the existing profile "' .. n .. '"?', commit, "Overwrite")
+    else
+      commit()
+    end
   end)
   hpSave:SetWidth(60); hpSave:SetPoint("LEFT", hpName, "RIGHT", 6, 0)
 
@@ -522,7 +547,6 @@ HoryUI:RegisterModule("config", true, function()
   -- HoryUI:Init), but the Bongos engine may populate BActionSets a frame later.
   local function ag() return BActionSets and BActionSets.g end          -- engine ready?
   local gChecks = {
-    { "Sticky bars",        function() return BongosSets and BongosSets.sticky end,        function(v) Bongos_SetStickyBars(v) end },
     { "Lock buttons",       function() return ag() and BActionSets_ButtonsLocked() end,    function(v) BActionSets_SetButtonsLocked(v) end },
     { "Show empty slots",   function() return ag() and BActionSets_ShowGrid() end,         function(v) BActionSets_SetShowGrid(v) end },
     { "Show tooltips",      function() return ag() and BActionSets_TooltipsShown() end,    function(v) BActionSets_SetTooltips(v) end },

@@ -7,6 +7,8 @@ function HoryUI:LoadConfig()
   if type(HoryUIDB.modules) ~= "table" then HoryUIDB.modules = {} end
   if type(HoryUIDB.pos) ~= "table" then HoryUIDB.pos = {} end
   HoryUI.gridShown = HoryUIDB.gridShown and true or false
+  if HoryUIDB.snapEnabled == nil then HoryUIDB.snapEnabled = true end
+  HoryUI.snapEnabled = HoryUIDB.snapEnabled and true or false
 end
 
 function HoryUI:IsModuleEnabled(name, default)
