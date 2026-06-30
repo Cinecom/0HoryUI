@@ -103,9 +103,8 @@ HoryUI:RegisterModule("unitframes", true, function()
         if f.power then f.power:SetMinMaxValues(0, 1); f.power:SetValue(1) end
         if f.pleft then f.pleft:SetText(""); f.pright:SetText("") end
         if f.portrait then f.portrait.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark") end
-        if f.pvp then f.pvp:Hide() end
-        if f.state then f.state:Hide() end
-        if f.combattimer then f.combattimer:Hide() end
+        if f.badge then f.badge:Hide() end
+        if f.portrait and f.portrait.backdrop then f.portrait.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
       else
         f:Hide()
       end
@@ -179,103 +178,112 @@ HoryUI:RegisterModule("unitframes", true, function()
     return p
   end
 
-  -- Portrait corner badges: a PvP-flag emblem (top-right) + a state icon
-  -- (top-left) -- resting "Zzz" for the player, in-combat swords for the target.
-  -- The UI-PVP-* emblems are shown un-cropped, exactly as the default frames do.
-  local ICONSZ = 13
-  local function BuildStateIcons(f)
-    local p = f.portrait
-    f.pvp = p:CreateTexture(nil, "OVERLAY")
-    f.pvp:SetWidth(ICONSZ); f.pvp:SetHeight(ICONSZ)
-    f.pvp:SetPoint("TOPRIGHT", p, "TOPRIGHT", -1, -1)
-    f.pvp:Hide()
+  -- Portrait status -- redesigned to read at a glance, no shrunk-down icons:
+  --   * PvP flag -> the whole portrait BORDER turns garnet (a bold red outline).
+  --   * activity -> ONE large badge in the top-left corner: the PvP combat-drop
+  --     countdown number (enemy player, amber), the resting "Zzz" (player, blue),
+  --     or the in-combat swords glyph (other targets, amber).
+  -- Only the relevant badge shows, so the portrait stays clean at rest.
+  local BADGESZ   = 22
+  local STATE_TEX = "Interface\\CharacterFrame\\UI-StateIcon"
 
-    f.state = p:CreateTexture(nil, "OVERLAY")
-    f.state:SetWidth(ICONSZ); f.state:SetHeight(ICONSZ)
-    f.state:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1)
-    f.state:SetTexture("Interface\\CharacterFrame\\UI-StateIcon")
-    f.state:Hide()
-
-    -- PvP combat-drop countdown, tucked under the PvP emblem (top-right).
-    f.combattimer = p:CreateFontString(nil, "OVERLAY")
-    HoryUI.SetFont(f.combattimer, HoryUI.font.number, 10, "OUTLINE")
-    f.combattimer:SetPoint("TOPRIGHT", p, "TOPRIGHT", -1, -(ICONSZ + 1))
-    f.combattimer:SetTextColor(C.threat[1], C.threat[2], C.threat[3])
-    f.combattimer:Hide()
-  end
-
-  -- PvP flag: FFA skull, else faction emblem (UI-PVP-Horde/Alliance), else off.
-  local function UpdatePvP(f)
-    if not f.pvp then return end
-    local unit = f.unit
-    if UnitExists(unit) and UnitIsPVPFreeForAll(unit) then
-      f.pvp:SetTexture("Interface\\TargetingFrame\\UI-PVP-FFA")
-      f.pvp:Show()
-    elseif UnitExists(unit) and UnitIsPVP(unit) then
-      local fg = UnitFactionGroup(unit)
-      if fg then
-        f.pvp:SetTexture("Interface\\TargetingFrame\\UI-PVP-" .. fg)
-        f.pvp:Show()
-      else
-        f.pvp:Hide()
-      end
-    else
-      f.pvp:Hide()
-    end
-  end
-
-  -- State icon: player shows the resting "Zzz" (IsResting); target shows the
-  -- crossed-swords combat icon (UnitAffectingCombat) -- no target-resting exists.
-  local function UpdateState(f)
-    if not f.state then return end
-    if f.stateMode == "rest" then
-      if IsResting() then
-        f.state:SetTexCoord(0, 0.5, 0, 0.5)
-        f.state:Show()
-      else
-        f.state:Hide()
-      end
-    elseif f.stateMode == "combat" then
-      if UnitExists(f.unit) and UnitAffectingCombat(f.unit) then
-        f.state:SetTexCoord(0.5, 1, 0, 0.5)
-        f.state:Show()
-      else
-        f.state:Hide()
-      end
-    else
-      f.state:Hide()
-    end
-  end
-
-  -- PvP combat-drop countdown. A player leaves combat ~5s after their last
-  -- combat action, so we count down from COMBAT_DROP and reset it on each fresh
-  -- interaction (the target's health changing) and on combat start. Only shown
-  -- for an enemy *player* in combat; when it reaches 0 but they're still flagged
-  -- (an action we didn't witness, e.g. a ranged caster), it holds at 0.0 until
-  -- the combat flag actually clears.
+  -- A player leaves combat ~COMBAT_DROP secs after their last combat action.
   local COMBAT_DROP = 5
   local function CombatTracked(unit)
     return UnitExists(unit) and UnitIsPlayer(unit)
       and UnitCanAttack("player", unit) and UnitAffectingCombat(unit)
   end
-  local function UpdateCombatTimer(f)
-    if not f.combattimer then return end
-    if not CombatTracked(f.unit) then
-      f.combattimer:Hide()
-      f.cbActive = nil
+
+  local function BuildStateIcons(f)
+    local p = f.portrait
+    local c = CreateFrame("Frame", nil, p)
+    c:SetWidth(BADGESZ); c:SetHeight(BADGESZ)
+    c:SetPoint("TOPLEFT", p, "TOPLEFT", 2, -2)
+    HoryUI.CreateBackdrop(c)
+    c.tex = c:CreateTexture(nil, "ARTWORK")
+    c.tex:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
+    c.tex:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
+    c.txt = c:CreateFontString(nil, "OVERLAY")
+    HoryUI.SetFont(c.txt, HoryUI.font.number, 15, "OUTLINE")
+    c.txt:SetAllPoints(c)
+    c:Hide()
+    f.badge = c
+
+    -- resting "Zzz" -- lives to the RIGHT of the name (positioned in UpdateState),
+    -- not on the portrait. Uses the bright Spell_Nature_Sleep icon at full colour
+    -- (the UI-StateIcon "Zzz" tinted blue was too dim to read).
+    f.resticon = f:CreateTexture(nil, "OVERLAY")
+    f.resticon:SetWidth(16); f.resticon:SetHeight(16)
+    f.resticon:SetTexture("Interface\\Icons\\Spell_Nature_Sleep")
+    f.resticon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    f.resticon:Hide()
+  end
+
+  local function BadgeBorder(c, col)
+    if c.backdrop then c.backdrop:SetBackdropBorderColor(col[1], col[2], col[3], 1) end
+  end
+
+  -- PvP flag -> bold garnet portrait border; otherwise the normal black border.
+  local function UpdatePvP(f)
+    local p = f.portrait
+    if not (p and p.backdrop) then return end
+    local unit = f.unit
+    if UnitExists(unit) and (UnitIsPVPFreeForAll(unit) or UnitIsPVP(unit)) then
+      local a = C.accent_hi
+      p.backdrop:SetBackdropBorderColor(a[1], a[2], a[3], 1)
+    else
+      p.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
+    end
+  end
+
+  -- Activity badge. Priority: the enemy-player combat-drop countdown number
+  -- (amber, resets on each interaction + on combat start, holds at 0 while still
+  -- flagged), then the resting "Zzz" (player, blue), then the in-combat swords
+  -- glyph (any other in-combat target, amber). Hidden when nothing applies.
+  local function UpdateState(f)
+    -- resting "Zzz": tucked just to the RIGHT of the player name text
+    if f.stateMode == "rest" then
+      if f.badge then f.badge:Hide() end
+      if f.resticon then
+        if IsResting() and f.name then
+          f.resticon:ClearAllPoints()
+          f.resticon:SetPoint("LEFT", f.name, "LEFT", f.name:GetStringWidth() + 4, 0)
+          f.resticon:Show()
+        else
+          f.resticon:Hide()
+        end
+      end
       return
     end
-    local now = GetTime()
-    if not f.cbActive then
-      f.cbLast = now      -- combat just started for this unit
-      f.cbActive = true
+
+    -- combat mode (target): the top-left badge shows the countdown / swords
+    local c = f.badge
+    if not c then return end
+    if CombatTracked(f.unit) then
+      local now = GetTime()
+      if not f.cbActive then f.cbLast = now; f.cbActive = true end
+      local remaining = COMBAT_DROP - (now - (f.cbLast or now))
+      if remaining < 0 then remaining = 0 end
+      c.tex:Hide()
+      c.txt:SetText(tostring(math.ceil(remaining)))
+      c.txt:SetTextColor(C.threat[1], C.threat[2], C.threat[3])
+      BadgeBorder(c, C.threat)
+      c:Show()
+      return
     end
-    local remaining = COMBAT_DROP - (now - (f.cbLast or now))
-    if remaining < 0 then remaining = 0 end
-    f.combattimer:SetText(string.format("%.1f", remaining))
-    f.combattimer:Show()
+    f.cbActive = nil
+    if UnitExists(f.unit) and UnitAffectingCombat(f.unit) then
+      c.txt:SetText("")
+      c.tex:SetTexture(STATE_TEX); c.tex:SetTexCoord(0.5, 1, 0, 0.5)
+      c.tex:SetVertexColor(C.threat[1], C.threat[2], C.threat[3]); c.tex:Show()
+      BadgeBorder(c, C.threat)
+      c:Show()
+    else
+      c:Hide()
+    end
   end
-  -- a combat interaction (health change) refreshes the drop timer
+
+  -- a combat interaction (the target's health changing) refreshes the drop timer
   local function ResetCombatTimer(f)
     if CombatTracked(f.unit) then f.cbLast = GetTime() end
   end
@@ -762,7 +770,6 @@ HoryUI:RegisterModule("unitframes", true, function()
     UpdateToT()
     UpdatePvP(target)
     UpdateState(target)
-    UpdateCombatTimer(target)
   end)
 
   -- target-of-target has no change event in 1.12 -- poll it lightly. The target's
@@ -773,7 +780,6 @@ HoryUI:RegisterModule("unitframes", true, function()
     this.tacc = 0
     UpdateToT()
     UpdateState(target)
-    UpdateCombatTimer(target)
   end)
 
   HoryUI.RegisterPanel(target, "target", "Target", "CENTER", 40, -150)
@@ -786,14 +792,12 @@ HoryUI:RegisterModule("unitframes", true, function()
     UpdateHealth(target); UpdatePower(target); SetPortrait(target)
     UpdateCombo(); UpdateToT()
     UpdatePvP(player); UpdateState(player); UpdatePvP(target); UpdateState(target)
-    UpdateCombatTimer(target)
   end)
 
   UpdateHealth(player); UpdateEnergy(); SetPortrait(player)
   UpdateHealth(target); UpdatePower(target); SetPortrait(target)
   UpdateCombo(); UpdateToT()
   UpdatePvP(player); UpdateState(player); UpdatePvP(target); UpdateState(target)
-  UpdateCombatTimer(target)
 
   -- hide the Blizzard frames this module replaces
   HoryUI.HideBlizzard(PlayerFrame)
