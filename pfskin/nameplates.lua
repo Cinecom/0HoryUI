@@ -1007,8 +1007,11 @@ end
 
     nameplate:SetWidth(plate_width)
     nameplate:SetHeight(plate_height)
-    -- HoryUI: lift the plate (health bar) a little higher off the unit
-    nameplate:SetPoint("TOP", parent, "TOP", 0, 6)
+    -- HoryUI: keep the overlay aligned with the Blizzard WorldFrame plate (offset
+    -- 0). Left-click targeting + right-click camera-look are wired to that parent
+    -- plate (see the click model in the vanilla OnConfigChange hook), and a lift
+    -- here would push the visible bar out of the parent's clickable/hit region.
+    nameplate:SetPoint("TOP", parent, "TOP", 0, 0)
 
     nameplate.name:SetFont(font, np_name_size, font_style)
 
@@ -2040,6 +2043,78 @@ end
   end
 
   if pfSkin.client <= 11200 then
+    -- HoryUI click model: LEFT-click a nameplate targets its unit; RIGHT-click
+    -- does NOT target but still rotates the camera (native right-drag look).
+    -- pfUI targets plates via a right-click + mouselook emulation and wires no
+    -- left-click; we invert that. Both are wired to the Blizzard WorldFrame plate
+    -- (`parent`), NOT our overlay bar, because:
+    --   * MouselookStart() only actually engages the camera when the right-down
+    --     lands on the WorldFrame plate -- calling it from the overlay bar did
+    --     nothing. So right-click must live on `parent`.
+    --   * A single mouse-enabled frame swallows all buttons, so we can't split
+    --     left onto the bar and right onto the parent -- both go on `parent`.
+    -- This is why the overlay is kept aligned with `parent` (offset 0 at ~L1011);
+    -- a lift would move the visible bar out of the parent's hit region.
+    -- LEFT targets by SuperWoW GUID directly (`nameplate.cachedGuid` from
+    -- `frame:GetName(1)`, the same token the module uses for GetUnitField /
+    -- UnitCanAttack); `parent:Click()` proved unreliable so it's only a fallback.
+    -- RIGHT: MouselookStart on down; the client ends mouselook on physical release
+    -- (IsMouselooking() -> false, as pfUI relies on), and we also MouselookStop on
+    -- up as a guard. `nameplates.mouselook` is now defined-but-unused.
+    local WHITE = "Interface\\Buttons\\WHITE8X8"
+
+    local function PlateOnMouseDown()
+      if arg1 == "RightButton" then MouselookStart() end   -- right-drag = camera
+    end
+    local function PlateOnMouseUp()
+      if arg1 == "RightButton" then                        -- right never targets
+        if IsMouselooking() then MouselookStop() end
+        return
+      end
+      if arg1 ~= "LeftButton" then return end
+      local np = this.nameplate
+      local guid = np and np.cachedGuid
+      if guid and TargetUnit then
+        TargetUnit(guid)                          -- SuperWoW: target by GUID
+      else
+        this:Click("LeftButton")                  -- fallback: native plate click
+      end
+    end
+    local function PlateOnEnter()
+      local np = this.nameplate
+      if np and np.horyHL then np.horyHL:Show() end
+    end
+    local function PlateOnLeave()
+      local np = this.nameplate
+      if np and np.horyHL then np.horyHL:Hide() end
+    end
+
+    local function WireClicks(parent)
+      local nameplate = parent.nameplate
+      if not nameplate then return end
+      local hb = nameplate.health
+      if hb and not nameplate.horyHL then
+        -- hover glow: a soft additive wash over the health bar, independent of the
+        -- border colour (which OnDataChanged re-sets every tick, so a border-based
+        -- highlight would flicker). Shown on mouseover, hidden on leave.
+        local hl = hb:CreateTexture(nil, "OVERLAY")
+        hl:SetTexture(WHITE)
+        hl:SetAllPoints(hb)
+        hl:SetBlendMode("ADD")
+        hl:SetVertexColor(1, 1, 1, 0.20)
+        hl:Hide()
+        nameplate.horyHL = hl
+      end
+      -- clicks + hover live on the WorldFrame plate (mouse kept enabled by the
+      -- central OnUpdate); the overlay bar carries no mouse so it can't swallow
+      -- the right button before the parent gets it.
+      parent:EnableMouse(true)
+      parent:SetScript("OnMouseDown", PlateOnMouseDown)
+      parent:SetScript("OnMouseUp", PlateOnMouseUp)
+      parent:SetScript("OnEnter", PlateOnEnter)
+      parent:SetScript("OnLeave", PlateOnLeave)
+    end
+
     -- handle vanilla only settings
     local hookOnConfigChange = nameplates.OnConfigChange
     nameplates.OnConfigChange = function(self)
@@ -2047,28 +2122,13 @@ end
 
       local parent = self
       local nameplate = self.nameplate
-      local plate = (C.nameplates["overlap"] == "1" or C.nameplates["vertical_offset"] ~= "0") and nameplate or parent
-
-      -- disable all clicks for now
-      parent:EnableMouse(false)
-      nameplate:EnableMouse(false)
 
       -- adjust vertical offset
       if C.nameplates["vertical_offset"] ~= "0" then
         nameplate:SetPoint("TOP", parent, "TOP", 0, tonumber(C.nameplates["vertical_offset"]))
       end
 
-      -- replace clickhandler
-      if C.nameplates["overlap"] == "1" or C.nameplates["vertical_offset"] ~= "0" then
-        plate:SetScript("OnClick", function() parent:Click() end)
-      end
-
-      -- enable mouselook on rightbutton down
-      if C.nameplates["rightclick"] == "1" then
-        plate:SetScript("OnMouseDown", nameplates.mouselook.OnMouseDown)
-      else
-        plate:SetScript("OnMouseDown", nil)
-      end
+      WireClicks(parent)
     end
 
     local hookOnDataChanged = nameplates.OnDataChanged

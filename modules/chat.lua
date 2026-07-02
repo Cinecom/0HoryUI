@@ -25,9 +25,32 @@ HoryUI:RegisterModule("chat", true, function()
 
   ----------------------------------------------------------------------------
   -- class DB (persists across sessions, grows as you see players)
+  --
+  -- The DB stores the class TOKEN ("WARRIOR"), which RAID_CLASS_COLORS is keyed
+  -- by. UnitClass gives us both localized name + token, but the guild/friend/who
+  -- APIs give only the LOCALIZED class ("Warrior"), so we keep a localized->token
+  -- map: seeded with enUS (Turtle's default) and auto-learned from every
+  -- UnitClass call, so non-enUS clients resolve once any class has been seen on a
+  -- real unit. Without guild/friend scanning most chat names never entered the DB
+  -- at all, which is why colouring only worked for people you'd grouped with.
   ----------------------------------------------------------------------------
+  local L2T = {
+    ["Warrior"] = "WARRIOR", ["Mage"] = "MAGE",   ["Rogue"]  = "ROGUE",
+    ["Druid"]   = "DRUID",   ["Hunter"] = "HUNTER", ["Priest"] = "PRIEST",
+    ["Warlock"] = "WARLOCK", ["Paladin"] = "PALADIN", ["Shaman"] = "SHAMAN",
+  }
+
   local function Remember(name, class)
     if name and class and class ~= "" then db[string.lower(name)] = class end
+  end
+
+  -- learn from a unit we can read directly (gives localized + token together)
+  local function RememberUnit(unit)
+    if UnitExists(unit) and UnitIsPlayer(unit) then
+      local loc, fc = UnitClass(unit)
+      if loc and fc then L2T[loc] = fc end
+      Remember(UnitName(unit), fc)
+    end
   end
 
   local function Scan()
@@ -39,21 +62,34 @@ HoryUI:RegisterModule("chat", true, function()
       end
     else
       for i = 1, GetNumPartyMembers() do
-        local u = "party" .. i
-        if UnitExists(u) then
-          local _, fc = UnitClass(u)
-          Remember(UnitName(u), fc)
-        end
+        RememberUnit("party" .. i)
       end
     end
-    local _, sc = UnitClass("player")
-    Remember(UnitName("player"), sc)
+    RememberUnit("player")
   end
 
-  local function RememberUnit(unit)
-    if UnitExists(unit) and UnitIsPlayer(unit) then
-      local _, fc = UnitClass(unit)
-      Remember(UnitName(unit), fc)
+  -- guild roster: class is localized, resolve via L2T. GuildRoster() must be
+  -- requested first; the data arrives on GUILD_ROSTER_UPDATE.
+  local function ScanGuild()
+    for i = 1, GetNumGuildMembers() do
+      local gname, _, _, _, gclass = GetGuildRosterInfo(i)
+      Remember(gname, L2T[gclass])
+    end
+  end
+
+  -- friends list: GetFriendInfo returns name, level, class (localized), ...
+  local function ScanFriends()
+    for i = 1, GetNumFriends() do
+      local fname, _, fclass = GetFriendInfo(i)
+      Remember(fname, L2T[fclass])
+    end
+  end
+
+  -- /who results: GetWhoInfo returns name, guild, level, race, class (localized)
+  local function ScanWho()
+    for i = 1, GetNumWhoResults() do
+      local wname, _, _, _, wclass = GetWhoInfo(i)
+      Remember(wname, L2T[wclass])
     end
   end
 
@@ -621,6 +657,9 @@ HoryUI:RegisterModule("chat", true, function()
   ev:RegisterEvent("PARTY_MEMBERS_CHANGED")
   ev:RegisterEvent("PLAYER_TARGET_CHANGED")
   ev:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+  ev:RegisterEvent("GUILD_ROSTER_UPDATE")
+  ev:RegisterEvent("FRIENDLIST_UPDATE")
+  ev:RegisterEvent("WHO_LIST_UPDATE")
   ev:RegisterEvent("PLAYER_LOGOUT")
   ev:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
@@ -631,14 +670,23 @@ HoryUI:RegisterModule("chat", true, function()
     if event == "PLAYER_ENTERING_WORLD" then
       RestoreChatGeom()                          -- re-assert saved size + position
       Restyle()
+      if IsInGuild() then GuildRoster() end       -- request roster -> GUILD_ROSTER_UPDATE
+      if ShowFriends then ShowFriends() end        -- request friend list -> FRIENDLIST_UPDATE
     elseif event == "PLAYER_TARGET_CHANGED" then
       RememberUnit("target")
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
       RememberUnit("mouseover")
+    elseif event == "GUILD_ROSTER_UPDATE" then
+      ScanGuild()
+    elseif event == "FRIENDLIST_UPDATE" then
+      ScanFriends()
+    elseif event == "WHO_LIST_UPDATE" then
+      ScanWho()
     else
       Scan()
     end
   end)
 
   Scan()
+  if IsInGuild() then GuildRoster() end            -- seed guild classes on login
 end)
