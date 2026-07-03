@@ -21,6 +21,7 @@ libs\panels.lua
 libs\widgets.lua
 libs\skin.lua
 data\sellprices.lua
+data\nodeskills.lua
 core\slash.lua
 modules\unitframes.lua
 modules\castbar.lua
@@ -43,6 +44,7 @@ modules\bags.lua
 modules\character.lua
 modules\outfitter.lua
 modules\tooltip.lua
+modules\nodeskill.lua
 modules\vendorprice.lua
 modules\selltrash.lua
 

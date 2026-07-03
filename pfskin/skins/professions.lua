@@ -276,6 +276,51 @@ pfSkin:RegisterSkin("Profession", "vanilla:tbc", function ()
         button:SetPoint("TOPLEFT", _G[template..i - 1], "BOTTOMLEFT")
       end
       for i = 1, _G[displayed] do SkinCollapseButton(_G[template..i]) end
+
+      -- HoryUI hand-edit -- ported from pfUI modules/turtle-wow.lua (not vendored).
+      -- This Turtle build names the search box <name>SearchBox and the filter
+      -- checkboxes <name>MatsCheckButton / <name>SkillCheckButton -- NOT the
+      -- <name>FrameSearchBox / <name>FrameEditBox the compat block above detects --
+      -- so on this client that block is skipped (search == nil) and these widgets are
+      -- left unskinned and overlapping at their raw defaults (the visible bug). Skin +
+      -- reposition them the way turtle-wow.lua does. Self-gated: no-ops on vanilla, on
+      -- Craft, and whenever the compat block already ran. Re-apply after any re-copy.
+      if not search then
+        local tmats   = _G[name.."MatsCheckButton"]
+        local tskill  = _G[name.."SkillCheckButton"]
+        local tsearch = _G[name.."SearchBox"]
+
+        if tmats then
+          SkinCheckbox(tmats)
+          tmats:SetWidth(24)
+          tmats:SetHeight(24)
+          tmats:ClearAllPoints()
+          tmats:SetPoint("TOPLEFT", frame, "TOPLEFT", 400, -2)
+        end
+
+        if tskill then
+          SkinCheckbox(tskill)
+          tskill:SetWidth(24)
+          tskill:SetHeight(24)
+          tskill:ClearAllPoints()
+          tskill:SetPoint("TOPLEFT", frame, "TOPLEFT", 500, -2)
+        end
+
+        if tsearch then
+          tsearch:DisableDrawLayer("BACKGROUND")
+          CreateBackdrop(tsearch, nil, nil, 1)
+          tsearch:ClearAllPoints()
+          tsearch:SetPoint("TOP", frame, "BOTTOM", 0, -8)
+        end
+
+        -- center the skill-rank number on the (now skinned) rank bar, as the compat
+        -- block would have done
+        local trank = _G[name.."RankFrameSkillRank"]
+        if trank and rankbar then
+          trank:ClearAllPoints()
+          trank:SetPoint("CENTER", rankbar, "CENTER", 0, 0)
+        end
+      end
     end)
   end
 end)

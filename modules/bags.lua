@@ -383,6 +383,22 @@ HoryUI:RegisterModule("bags", true, function()
         if Relayout then Relayout() end
         HighlightBag(KEYRING)        -- re-focus if it's now on (no-op if off)
       end)
+    elseif b >= 1 then
+      -- an equippable bag slot (bags 1-4). The custom icon carried no click/drag
+      -- handlers, so bags couldn't be equipped, swapped, or taken off. Wire the
+      -- native bag-slot behaviour (mirrors Blizzard's BagSlotButtonTemplate) on
+      -- the slot's inventory id: left-click with a bag on the cursor puts it in
+      -- (swapping any current bag), left-click with an empty cursor picks the
+      -- equipped bag up (take off / move), and drag mirrors that -- drag off to
+      -- remove, drop a bag on to equip.
+      local invID = ContainerIDToInventoryID(b)
+      ib:SetID(invID)
+      ib:RegisterForDrag("LeftButton")
+      ib:SetScript("OnClick", function()
+        if CursorHasItem() then PutItemInBag(invID) else PickupBagFromSlot(invID) end
+      end)
+      ib:SetScript("OnDragStart", function() PickupBagFromSlot(invID) end)
+      ib:SetScript("OnReceiveDrag", function() PutItemInBag(invID) end)
     end
     return ib
   end
@@ -529,6 +545,9 @@ HoryUI:RegisterModule("bags", true, function()
     local cols = Cols()
     colNum:SetText(cols)
     PaintKey()
+    -- refresh the bag-slot icon textures so an equip/swap shows the new bag while
+    -- the options popup is open (icons are hidden otherwise, so skip the work).
+    if menu and menu:IsShown() and RefreshBagIcons then RefreshBagIcons() end
 
     -- the keyring is the only container that can leave the active set; when it's
     -- off its buttons must be hidden or they'd linger from the last layout.
@@ -691,6 +710,10 @@ HoryUI:RegisterModule("bags", true, function()
   driver.acc = 0
   driver:RegisterEvent("PLAYER_LOGOUT")
   driver:RegisterEvent("BAG_UPDATE")
+  -- BAG_CLOSED fires when a bag is removed/swapped out of a slot; without it,
+  -- taking a bag off left its now-stale cells in the grid (looked "duplicated"
+  -- and the total cell count never shrank). Coalesced into the same relayout.
+  driver:RegisterEvent("BAG_CLOSED")
   driver:RegisterEvent("BAG_UPDATE_COOLDOWN")
   driver:RegisterEvent("ITEM_LOCK_CHANGED")
   driver:RegisterEvent("PLAYER_MONEY")
@@ -701,7 +724,7 @@ HoryUI:RegisterModule("bags", true, function()
       this:SetScript("OnEvent", nil)
       this:SetScript("OnUpdate", nil)
       return
-    elseif event == "BAG_UPDATE" then
+    elseif event == "BAG_UPDATE" or event == "BAG_CLOSED" then
       this.dirty = true
     elseif event == "BAG_UPDATE_COOLDOWN" then
       this.cdDirty = true

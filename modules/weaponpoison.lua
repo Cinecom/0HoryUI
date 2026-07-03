@@ -91,5 +91,6 @@ HoryUI:RegisterModule("weaponpoison", true, function()
 
   HoryUI.RegisterPanel(f, "weaponpoison", "Poison", "CENTER", 0, -230)
   HoryUI.AddRefresher(Update)
+  HoryUI.HideBlizzard(TemporaryEnchantFrame)  -- kill the default top-right poison display
   Update()
 end)

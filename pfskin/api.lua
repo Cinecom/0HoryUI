@@ -574,6 +574,14 @@ end
 function pfSkin.api.HookAddonOrVariable(addon, func)
   local lurker = CreateFrame("Frame", nil)
   lurker.func = func
+  -- HoryUI hand-edit: pfSkin applies skins at PLAYER_LOGIN (boot.lua), which fires
+  -- AFTER VARIABLES_LOADED -- so this lurker is created too late to ever catch
+  -- VARIABLES_LOADED and set foundConfig (in pfUI the lurker is born during early
+  -- init and does catch it). Config is guaranteed loaded before any skin registers a
+  -- hook here, so mark it found up front; otherwise the ADDON_LOADED gate below stays
+  -- shut forever and every LoadOnDemand skin (professions/craft/auction/...) that
+  -- loads after login never applies. Re-apply this after any re-copy from pfUI.
+  lurker.foundConfig = true
   lurker:RegisterEvent("ADDON_LOADED")
   lurker:RegisterEvent("VARIABLES_LOADED")
   lurker:RegisterEvent("PLAYER_ENTERING_WORLD")
