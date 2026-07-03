@@ -2043,11 +2043,13 @@ end
   end
 
   if pfSkin.client <= 11200 then
-    -- HoryUI click model: LEFT-click a nameplate targets its unit; RIGHT-click
-    -- does NOT target but still rotates the camera (native right-drag look).
-    -- pfUI targets plates via a right-click + mouselook emulation and wires no
-    -- left-click; we invert that. Both are wired to the Blizzard WorldFrame plate
-    -- (`parent`), NOT our overlay bar, because:
+    -- HoryUI click model: LEFT-click a nameplate targets its unit; a quick
+    -- RIGHT-click tap targets AND attacks it; a RIGHT-click drag/hold rotates the
+    -- camera (native right-drag look) and does NOT target/attack. pfUI wires only
+    -- the right-click (tap = target+attack) and no left-click; HoryUI adds the
+    -- left-click target on top and keeps pfUI's tap-vs-drag detection for right.
+    -- Both are wired to the Blizzard WorldFrame plate (`parent`), NOT our overlay
+    -- bar, because:
     --   * MouselookStart() only actually engages the camera when the right-down
     --     lands on the WorldFrame plate -- calling it from the overlay bar did
     --     nothing. So right-click must live on `parent`.
@@ -2058,19 +2060,26 @@ end
     -- LEFT targets by SuperWoW GUID directly (`nameplate.cachedGuid` from
     -- `frame:GetName(1)`, the same token the module uses for GetUnitField /
     -- UnitCanAttack); `parent:Click()` proved unreliable so it's only a fallback.
-    -- RIGHT: MouselookStart on down; the client ends mouselook on physical release
-    -- (IsMouselooking() -> false, as pfUI relies on), and we also MouselookStop on
-    -- up as a guard. `nameplates.mouselook` is now defined-but-unused.
+    -- RIGHT: MouselookStart on down + start the `nameplates.mouselook` detection
+    -- frame; its OnUpdate decides tap (target+attack) vs drag (camera only) once
+    -- the button is released (the client drops IsMouselooking() on physical
+    -- release, as pfUI relies on), gated by C.nameplates.clickthreshold (0.5s).
     local WHITE = "Interface\\Buttons\\WHITE8X8"
 
     local function PlateOnMouseDown()
-      if arg1 == "RightButton" then MouselookStart() end   -- right-drag = camera
+      if arg1 == "RightButton" then
+        MouselookStart()                                   -- right-drag = camera
+        -- Begin pfUI's tap-vs-drag detection: remember when/which plate the
+        -- right-down landed on so the mouselook OnUpdate can tell a quick tap
+        -- (target + attack) from a held drag (camera only, no action).
+        nameplates.mouselook.time = GetTime()
+        nameplates.mouselook.frame = this
+        nameplates.mouselook:Show()
+      end
     end
     local function PlateOnMouseUp()
-      if arg1 == "RightButton" then                        -- right never targets
-        if IsMouselooking() then MouselookStop() end
-        return
-      end
+      -- Right button is handled entirely by the mouselook OnUpdate (below) so it
+      -- can decide tap-vs-drag; releasing it here would race that detection.
       if arg1 ~= "LeftButton" then return end
       local np = this.nameplate
       local guid = np and np.cachedGuid
@@ -2141,20 +2150,12 @@ end
       end
     end
 
-    -- enable mouselook on rightbutton down
+    -- Right-click tap-vs-drag detection (pfUI technique). PlateOnMouseDown starts
+    -- MouselookStart() + records .time/.frame and Show()s this frame on right-down;
+    -- this OnUpdate then decides what the right-click meant once the button is up.
     nameplates.mouselook = CreateFrame("Frame", nil, UIParent)
     nameplates.mouselook.time = nil
     nameplates.mouselook.frame = nil
-    nameplates.mouselook.OnMouseDown = function()
-      if arg1 and arg1 == "RightButton" then
-        MouselookStart()
-
-        -- start detection of the rightclick emulation
-        nameplates.mouselook.time = GetTime()
-        nameplates.mouselook.frame = this
-        nameplates.mouselook:Show()
-      end
-    end
 
     nameplates.mouselook:SetScript("OnUpdate", function()
       -- break here if nothing to do
@@ -2163,19 +2164,28 @@ end
         return
       end
 
-      -- if threshold is reached (0.5 second) no click action will follow
-      if not IsMouselooking() and this.time + tonumber(C.nameplates["clickthreshold"]) < GetTime() then
+      -- Still holding right-down: MouselookStart engaged the camera, so
+      -- IsMouselooking() stays true until the physical release -- wait it out.
+      if IsMouselooking() then return end
+
+      -- Released. If we sat past the threshold it was a camera drag/hold, not a
+      -- tap -- rotate only, no target/attack.
+      if this.time + tonumber(C.nameplates["clickthreshold"]) < GetTime() then
         this:Hide()
         return
       end
 
-      -- run a usual nameplate rightclick action
-      if not IsMouselooking() then
+      -- Quick right-click tap: target the plate's unit (by GUID, like left-click)
+      -- and start attacking it out of combat.
+      local np = this.frame.nameplate
+      local guid = np and np.cachedGuid
+      if guid and TargetUnit then
+        TargetUnit(guid)
+      else
         this.frame:Click("LeftButton")
-        if UnitCanAttack("player", "target") and not nameplates.combat.inCombat then AttackTarget() end
-        this:Hide()
-        return
       end
+      if UnitCanAttack("player", "target") and not nameplates.combat.inCombat then AttackTarget() end
+      this:Hide()
     end)
   end
 
