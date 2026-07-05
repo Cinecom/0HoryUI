@@ -15,6 +15,9 @@
 HoryUI:RegisterModule("durability", true, function()
   local C = HoryUI.color
 
+  -- Kill Blizzard's on-screen "damaged armour" figurine -- we show our own.
+  HoryUI.HideBlizzard(DurabilityFrame)
+
   -- Inventory slots that can carry durability, head -> feet -> weapons.
   local SLOTS = {
     { 1,  "Head" },

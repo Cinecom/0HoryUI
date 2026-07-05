@@ -99,10 +99,11 @@ HoryUI:RegisterModule("config", true, function()
 
   local navGeneral = MakeNav("General", "general", -42)
   local navMods    = MakeNav("Modules", "modules", -70)
-  local navAddons  = MakeNav("Addons",  "addons",  -98)
-  local navPfui    = MakeNav("PfUI",    "pfui",    -126)
-  local navAbars   = MakeNav("Actionbars", "actionbars", -154)
-  local navLoad    = MakeNav("Load Times", "loadtimes", -182)
+  local navBuffs   = MakeNav("Buff Bars", "buffbars", -98)
+  local navAddons  = MakeNav("Addons",  "addons",  -126)
+  local navPfui    = MakeNav("PfUI",    "pfui",    -154)
+  local navAbars   = MakeNav("Actionbars", "actionbars", -182)
+  local navLoad    = MakeNav("Load Times", "loadtimes", -210)
 
   local function HLNav(b, active)
     b.active = active
@@ -315,12 +316,12 @@ HoryUI:RegisterModule("config", true, function()
     { id = "raid",         name = "Raid Frames" },
     { id = "xprep",        name = "XP / Reputation Bar" },
     { id = "weaponpoison", name = "Weapon Poison" },
+    { id = "poisonapply",  name = "Poison Apply (L=MH / R=OH)" },
     { id = "cooldowntext", name = "Cooldown Text" },
     { id = "chat",         name = "Chat Tweaks" },
     { id = "minimap",      name = "Minimap" },
     { id = "bags",         name = "Bags (one-bag)" },
-    { id = "character",    name = "Character Panel" },
-    { id = "outfitter",    name = "Outfitter Integration" },
+    { id = "buffbars",     name = "Buff Bars (tracked buffs)" },
   }
 
   local modList = HoryUI.CreateScrollFrame(win, 278, 11, 23)
@@ -335,6 +336,84 @@ HoryUI:RegisterModule("config", true, function()
     HoryUI:SetModuleEnabled(m.id, not HoryUI:IsModuleEnabled(m.id, true))
     modList.Update()
   end
+
+  -- =========================================================================
+  -- content : Buff Bars (tracked-buff countdown bars -- modules/buffbars.lua)
+  -- =========================================================================
+  local bufftab = CreateFrame("Frame", nil, win)
+  bufftab:SetPoint("TOPLEFT", win, "TOPLEFT", 132, -44)
+  bufftab:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -12, 42)
+
+  local bbTitle = bufftab:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(bbTitle, HoryUI.font.normal, 11, "OUTLINE")
+  bbTitle:SetPoint("TOPLEFT", bufftab, "TOPLEFT", 0, 0)
+  bbTitle:SetText("Tracked buffs")
+  bbTitle:SetTextColor(C.text[1], C.text[2], C.text[3])
+  Desc("Each tracked buff shows a countdown bar while it's active.", bbTitle, -4, bufftab)
+
+  local function BuffList()
+    HoryUIDB.buffbars = HoryUIDB.buffbars or {}
+    return HoryUIDB.buffbars
+  end
+
+  -- name input (same garnet editbox recipe as the bag search box)
+  local bbInput = CreateFrame("EditBox", "HoryUIBuffBarInput", bufftab)
+  bbInput:SetWidth(200); bbInput:SetHeight(20)
+  bbInput:SetPoint("TOPLEFT", bufftab, "TOPLEFT", 0, -36)
+  bbInput:SetAutoFocus(false)
+  bbInput:SetFont(HoryUI.font.normal, 11, "OUTLINE")
+  bbInput:SetTextColor(C.text[1], C.text[2], C.text[3])
+  bbInput:SetTextInsets(4, 4, 0, 0)
+  HoryUI.CreateBackdrop(bbInput)
+  bbInput:SetScript("OnEscapePressed", function() this:ClearFocus() end)
+
+  local bbHint = bbInput:CreateFontString(nil, "ARTWORK")
+  HoryUI.SetFont(bbHint, HoryUI.font.normal, 11, "OUTLINE")
+  bbHint:SetPoint("LEFT", bbInput, "LEFT", 5, 0)
+  bbHint:SetText("Exact buff name")
+  bbHint:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
+  bbInput:SetScript("OnTextChanged", function()
+    if this:GetText() == "" then bbHint:Show() else bbHint:Hide() end
+  end)
+
+  local bbList = HoryUI.CreateScrollFrame(bufftab, 278, 9, 23)
+  bbList:SetPoint("TOPLEFT", bufftab, "TOPLEFT", 0, -66)
+  bbList.OnUpdateRow = function(row, idx)
+    row.toggle:Hide()                       -- plain name rows, no on/off pill
+    row.label:SetText(BuffList()[idx])
+  end
+  bbList.OnClickRow = function(idx)
+    tremove(BuffList(), idx)
+    bbList.SetTotal(getn(BuffList()))
+    if HoryUI.BuffBarsRescan then HoryUI.BuffBarsRescan() end
+  end
+
+  local function AddTrackedBuff()
+    local txt = bbInput:GetText() or ""
+    local _, _, trimmed = string.find(txt, "^%s*(.-)%s*$")
+    txt = trimmed or txt
+    if txt == "" then return end
+    local list = BuffList()
+    for i = 1, getn(list) do
+      if list[i] == txt then bbInput:SetText(""); return end   -- already tracked
+    end
+    tinsert(list, txt)
+    bbInput:SetText("")
+    bbInput:ClearFocus()
+    bbList.SetTotal(getn(list))
+    if HoryUI.BuffBarsRescan then HoryUI.BuffBarsRescan() end
+  end
+  bbInput:SetScript("OnEnterPressed", AddTrackedBuff)
+
+  local bbAdd = HoryUI.CreateButton(bufftab, "Add", AddTrackedBuff)
+  bbAdd:SetWidth(60)
+  bbAdd:SetPoint("LEFT", bbInput, "RIGHT", 8, 0)
+
+  local bbFoot = bufftab:CreateFontString(nil, "OVERLAY")
+  HoryUI.SetFont(bbFoot, HoryUI.font.normal, 10, "OUTLINE")
+  bbFoot:SetPoint("BOTTOMLEFT", bufftab, "BOTTOMLEFT", 0, 0)
+  bbFoot:SetText("Click a name to remove it. Names must match the buff exactly.")
+  bbFoot:SetTextColor(C.text3[1], C.text3[2], C.text3[3])
 
   -- =========================================================================
   -- content : Addons
@@ -725,15 +804,18 @@ HoryUI:RegisterModule("config", true, function()
   win.tab = "general"
   ShowTab = function(which)
     win.tab = which
-    general:Hide(); modList:Hide(); addonList:Hide(); pfui:Hide(); loadtab:Hide(); abars:Hide()
+    general:Hide(); modList:Hide(); bufftab:Hide(); addonList:Hide(); pfui:Hide(); loadtab:Hide(); abars:Hide()
     HLNav(navGeneral, which == "general")
     HLNav(navMods, which == "modules")
+    HLNav(navBuffs, which == "buffbars")
     HLNav(navAddons, which == "addons")
     HLNav(navPfui, which == "pfui")
     HLNav(navLoad, which == "loadtimes")
     HLNav(navAbars, which == "actionbars")
     if which == "modules" then
       modList:Show(); modList.SetTotal(getn(mods))
+    elseif which == "buffbars" then
+      bufftab:Show(); bbList.SetTotal(getn(BuffList()))
     elseif which == "addons" then
       addonList:Show(); addonList.SetTotal(GetNumAddOns())
     elseif which == "pfui" then

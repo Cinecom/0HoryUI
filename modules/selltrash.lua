@@ -8,15 +8,21 @@
 -- reported total is summed from the vendored sell-price DB (HoryUI.sellData) when
 -- the item is present; unknown items still sell, they just don't add to the total.
 --
--- The button is a child of MerchantFrame, so it shows/hides with the merchant
--- window automatically -- no MERCHANT_SHOW/CLOSED wiring, no OnUpdate, no events,
--- so nothing to defuse on logout.
+-- Sells are STAGGERED -- one item per 0.1s tick, pfUI autovendor's technique
+-- (pfUI/modules/autovendor.lua). Firing every UseContainerItem in one synchronous
+-- burst made the server drop one request WITHOUT replying, and that slot then
+-- stayed locked until a full client restart (item locks are client-engine state;
+-- a /reload can't clear them). One sell per tick lets each lock/unlock round-trip
+-- resolve between requests. The seller frame is hidden while idle (its OnUpdate
+-- only runs during a sale), aborts when the merchant closes, and defuses on
+-- PLAYER_LOGOUT.
 
 HoryUI:RegisterModule("selltrash", true, function()
   if not MerchantFrame then return end
   local C = HoryUI.color
   local strfind, strlower, tonumber = string.find, string.lower, tonumber
   local floor, mod = math.floor, math.mod
+  local GetTime = GetTime
   local GetContainerNumSlots = GetContainerNumSlots
   local GetContainerItemLink, GetContainerItemInfo = GetContainerItemLink, GetContainerItemInfo
   local UseContainerItem = UseContainerItem
@@ -43,36 +49,80 @@ HoryUI:RegisterModule("selltrash", true, function()
     return (sell and tonumber(sell)) or 0
   end
 
-  local function SellTrash()
-    if not MerchantFrame:IsShown() then return end
-    local count, value = 0, 0
+  -- ==========================================================================
+  -- the seller: shown = a run is active; one item per tick, then summary ------
+  -- ==========================================================================
+  local seller = CreateFrame("Frame")
+  seller:Hide()
+
+  seller:SetScript("OnShow", function()
+    this.processed = {}      -- slots already sent this run (never re-sent)
+    this.count = 0
+    this.value = 0
+    this.tick = 0
+  end)
+
+  -- next unprocessed grey slot; marks it processed so a slot is sent AT MOST
+  -- once per run even if the server never empties it (matches pfUI autovendor)
+  local function NextTrash()
     for bag = 0, 4 do
       local slots = GetContainerNumSlots(bag) or 0
       for slot = 1, slots do
-        local link = GetContainerItemLink(bag, slot)
-        -- poor quality (grey) = the |cff9d9d9d colour prefix on the link
-        if link and strfind(strlower(link), "|cff9d9d9d") then
-          local _, itemCount, locked = GetContainerItemInfo(bag, slot)
-          if not locked then
-            count = count + 1
-            value = value + SellValue(link) * (itemCount or 1)
-            UseContainerItem(bag, slot)                -- sells at an open merchant
+        local key = bag .. "x" .. slot
+        if not seller.processed[key] then
+          local link = GetContainerItemLink(bag, slot)
+          -- poor quality (grey) = the |cff9d9d9d colour prefix on the link
+          if link and strfind(strlower(link), "|cff9d9d9d") then
+            seller.processed[key] = true
+            return bag, slot, link
           end
         end
       end
     end
-    if count > 0 then
-      local msg = "HoryUI: sold " .. count .. " trash item" .. (count == 1 and "" or "s")
-      if value > 0 then msg = msg .. " for " .. Money(value) end
+  end
+
+  seller:SetScript("OnUpdate", function()
+    if this.tick > GetTime() then return end
+    this.tick = GetTime() + 0.1
+
+    if not MerchantFrame:IsShown() then this:Hide() return end
+
+    local bag, slot, link = NextTrash()
+    if not bag then
+      this:Hide()                              -- drained; OnHide prints the summary
+      return
+    end
+    local _, itemCount, locked = GetContainerItemInfo(bag, slot)
+    if locked then return end                  -- in flight; skip (stays processed)
+    this.count = this.count + 1
+    this.value = this.value + SellValue(link) * (itemCount or 1)
+    ClearCursor()
+    UseContainerItem(bag, slot)                -- sells at an open merchant
+  end)
+
+  seller:SetScript("OnHide", function()
+    if this.count > 0 then
+      local msg = "HoryUI: sold " .. this.count .. " trash item" .. (this.count == 1 and "" or "s")
+      if this.value > 0 then msg = msg .. " for " .. Money(this.value) end
       DEFAULT_CHAT_FRAME:AddMessage(msg, C.accent_hi[1], C.accent_hi[2], C.accent_hi[3])
     else
       DEFAULT_CHAT_FRAME:AddMessage("HoryUI: no trash to sell.", C.text2[1], C.text2[2], C.text2[3])
     end
-  end
+  end)
+
+  seller:RegisterEvent("PLAYER_LOGOUT")
+  seller:SetScript("OnEvent", function()
+    this:UnregisterAllEvents()
+    this:SetScript("OnEvent", nil)
+    this:SetScript("OnUpdate", nil)
+    this:SetScript("OnHide", nil)
+  end)
 
   -- above the merchant window's top-left corner, so it never overlaps the item
   -- grid, page buttons, or the money frame regardless of the (pfskin) skin.
-  local btn = HoryUI.CreateButton(MerchantFrame, "Sell Trash", SellTrash)
+  local btn = HoryUI.CreateButton(MerchantFrame, "Sell Trash", function()
+    if MerchantFrame:IsShown() then seller:Show() end    -- Show on a running seller is a no-op
+  end)
   btn:SetWidth(90)
   btn:SetPoint("BOTTOMLEFT", MerchantFrame, "TOPLEFT", 12, 4)
 

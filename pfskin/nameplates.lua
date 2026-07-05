@@ -1236,11 +1236,16 @@ end
 
     plate.name:SetText(GetNameString(name))
     plate.level:SetText(string.format("%s%s", level, (elitestrings[elite] or "")))
-    
-    -- Set level color from GetDifficultyColor when using DB level
-    if levelFromDB and type(level) == "number" then
-      local color = GetDifficultyColor(level)
-      plate.level:SetTextColor(color.r + 0.3, color.g + 0.3, color.b + 0.3, 1)
+
+    -- HoryUI: the level is ALWAYS difficulty-coloured against the player's own
+    -- level (raw GetDifficultyColor -- exactly the target frame's LevelInfo),
+    -- never Blizzard's plate colour or a +0.3 wash. "??" (skull) reads red.
+    local lvlnum = tonumber(level)
+    if lvlnum then
+      local color = GetDifficultyColor(lvlnum)
+      plate.level:SetTextColor(color.r, color.g, color.b, 1)
+    else
+      plate.level:SetTextColor(1, .2, .2, 1)
     end
 
     if guild and C.nameplates.showguildname == "1" then
@@ -1431,9 +1436,11 @@ end
 
           -- HoryUI tweak: show a countdown number only for auras under 60s remaining.
           -- (OnDataChanged re-runs on the throttled nameplate tick with a fresh
-          -- timeleft from libdebuff, so this counts down on its own.)
+          -- timeleft from libdebuff, so this counts down on its own.) CEIL, not
+          -- floor: every timer's last displayed second is "1" -- floor made some
+          -- reach "0" while event-fresh ones stopped at "1" (inconsistent).
           if timeleft and timeleft > 0 and timeleft < 60 then
-            plate.debuffs[index].timer:SetText(floor(timeleft))
+            plate.debuffs[index].timer:SetText(math.ceil(timeleft))
             plate.debuffs[index].timer:Show()
           else
             plate.debuffs[index].timer:Hide()
@@ -1714,12 +1721,12 @@ end
       update = true
     end
 
-    -- trigger update when level color changed
+    -- trigger update when Blizzard's level color changed (the level info was
+    -- refreshed). HoryUI: the colour itself is NOT copied -- OnDataChanged
+    -- re-applies the GetDifficultyColor tint, matching the target frame.
     local r, g, b = original.level:GetTextColor()
-    r, g, b = r + .3, g + .3, b + .3
     if r + g + b ~= nameplate.cache.levelcolor then
       nameplate.cache.levelcolor = r + g + b
-      nameplate.level:SetTextColor(r,g,b,1)
       update = true
     end
 

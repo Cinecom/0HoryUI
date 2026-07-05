@@ -1,9 +1,12 @@
 -- HoryUI :: node skill -- shows the profession skill level required to gather a
 -- world node (mining veins, herbs) in its hover tooltip. 1.12 exposes no API for
 -- a node's required skill, so the requirement is looked up in the static
--- HoryUI.nodeSkills table (data/nodeskills.lua). The line is colour-coded by
--- whether the player's own skill meets it (green = can gather, red = too low,
--- muted = profession not learned).
+-- HoryUI.nodeSkills table (data/nodeskills.lua). The line is colour-coded with
+-- WoW's gathering skill-up tiers vs the player's own skill (SkillColor):
+-- red = can't gather (or profession not learned), then orange / yellow / green /
+-- grey by margin -- the same tiers the trade-skill window uses. ONE function
+-- colours BOTH the world-node line and the minimap-pin line, so they always read
+-- identically.
 --
 -- Technique mirrors modules/tooltip.lua's guild-rank append: world mouseover
 -- tooltips (nodes included) go through GameTooltip, and 1.12's
@@ -18,7 +21,6 @@
 HoryUI:RegisterModule("nodeskill", true, function()
   local data = HoryUI.nodeSkills
   if not data then return end                 -- data file missing -> nothing to do
-  local C = HoryUI.color
 
   ----------------------------------------------------------------------------
   -- player skill cache (profession name -> current rank), refreshed on change
@@ -44,6 +46,24 @@ HoryUI:RegisterModule("nodeskill", true, function()
     RefreshSkills()
   end)
   RefreshSkills()
+
+  ----------------------------------------------------------------------------
+  -- WoW's gathering skill-up colour tiers, vs your own skill:
+  --   red    = below the requirement (can't gather; "not learned" reads red too)
+  --   orange = req .. +24        yellow = +25 .. +49
+  --   green  = +50 .. +99        grey   = +100 and up (trivial, no skill-up)
+  -- The same tiering the trade-skill window / Gatherer use. Red matches
+  -- RED_FONT_COLOR -- the exact red on the game's native "Requires" line.
+  ----------------------------------------------------------------------------
+  local function SkillColor(prof, req)
+    local have = skill[prof]
+    if not have or have < req then return 1.00, 0.10, 0.10 end   -- red
+    local diff = have - req
+    if diff < 25 then return 1.00, 0.50, 0.25 end                -- orange
+    if diff < 50 then return 1.00, 1.00, 0.00 end                -- yellow
+    if diff < 100 then return 0.25, 0.75, 0.25 end               -- green
+    return 0.50, 0.50, 0.50                                      -- grey
+  end
 
   ----------------------------------------------------------------------------
   -- which tooltips may get the requirement line
@@ -93,32 +113,26 @@ HoryUI:RegisterModule("nodeskill", true, function()
     local needle = "Requires " .. prof        -- native line + our own both contain this
     local tag = "(" .. req .. ")"
 
+    local r, g, b = SkillColor(prof, req)
+
     for i = 2, GameTooltip:NumLines() do
       local line = getglobal("GameTooltipTextLeft" .. i)
       local t = line and line:GetText()
       if t and string.find(t, needle, 1, true) then
         if not string.find(t, tag, 1, true) then
           line:SetText(t .. " " .. tag)        -- fold the number into the existing line
-          GameTooltip:Show()
         end
-        return                                 -- already has (or now has) the number
+        -- recolour the existing line too (the game's native red line, or our own
+        -- from an earlier show) so world node and minimap pin ALWAYS use the same
+        -- SkillColor tier -- this is what keeps the two readouts consistent.
+        line:SetTextColor(r, g, b)
+        GameTooltip:Show()
+        return
       end
     end
 
     -- No requires line yet (you meet it, or it's a minimap pin with none) -> add
-    -- our own. Colour to MATCH the world node exactly: green (C.health, same as
-    -- the world can-gather line) when you meet it, else the game's own requirement
-    -- red -- RED_FONT_COLOR is the precise red Blizzard puts on the world node's
-    -- native "Requires" line, so world and minimap read identically (and, like the
-    -- world node, "not learned" reads red too, not a separate muted tier).
-    local have = skill[prof]
-    local r, g, b
-    if have and have >= req then
-      r, g, b = C.health[1], C.health[2], C.health[3]
-    else
-      local red = RED_FONT_COLOR or { r = 1, g = 0.1, b = 0.1 }
-      r, g, b = red.r, red.g, red.b
-    end
+    -- our own, in the same SkillColor tier.
     GameTooltip:AddLine(needle .. " " .. tag, r, g, b)
     GameTooltip:Show()                        -- recalc size for the new line
   end

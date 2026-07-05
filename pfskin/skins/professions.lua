@@ -109,7 +109,14 @@ pfSkin:RegisterSkin("Profession", "vanilla:tbc", function ()
 
         StripTextures(_G[name.."RankFrameBorder"])
         CreateBackdrop(rankbar, nil, true)
-        rankbar:SetStatusBarTexture(pfSkin.media["img:bar"])
+        -- HoryUI hand-edit (re-apply after re-copy): the vendored img:bar fill has
+        -- no status-bar colour and renders empty on this build (correct number, no
+        -- fill). Drive it with HoryUI's guaranteed white bar texture tinted the
+        -- garnet accent, and lift the fill above the legacy backdrop so it shows.
+        rankbar:SetStatusBarTexture(HoryUI.tex.white)
+        rankbar:SetStatusBarColor(HoryUI.color.accent[1], HoryUI.color.accent[2], HoryUI.color.accent[3], 1)
+        local rankfill = rankbar:GetStatusBarTexture()
+        if rankfill then rankfill:SetDrawLayer("ARTWORK") end
         rankbar:ClearAllPoints()
         rankbar:SetPoint("TOPLEFT", detailscroll.backdrop, "TOPLEFT", 0, 25)
         rankbar:SetPoint("BOTTOMRIGHT", detailscroll.backdrop, "TOPRIGHT", 0, 6)

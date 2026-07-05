@@ -104,6 +104,8 @@ HoryUI:RegisterModule("unitframes", true, function()
         if f.pleft then f.pleft:SetText(""); f.pright:SetText("") end
         if f.portrait then f.portrait.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark") end
         if f.badge then f.badge:Hide() end
+        if f.raidicon then f.raidicon:Hide() end
+        if f.health.UpdateIncHeal then f.health.UpdateIncHeal(unit) end
         if f.portrait and f.portrait.backdrop then f.portrait.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
       else
         f:Hide()
@@ -138,6 +140,8 @@ HoryUI:RegisterModule("unitframes", true, function()
       f.hpval:SetText(hp .. " / " .. max)
       f.hppct:SetText(pct .. "%")
     end
+
+    if f.health.UpdateIncHeal then f.health.UpdateIncHeal(unit) end
 
     if unit == "player" then f.injured = (hp < max) end
   end
@@ -212,8 +216,9 @@ HoryUI:RegisterModule("unitframes", true, function()
     -- resting "Zzz" -- lives to the RIGHT of the name (positioned in UpdateState),
     -- not on the portrait. Uses the bright Spell_Nature_Sleep icon at full colour
     -- (the UI-StateIcon "Zzz" tinted blue was too dim to read).
+    -- 12px (down from 16) so it sits with a little air around the name row
     f.resticon = f:CreateTexture(nil, "OVERLAY")
-    f.resticon:SetWidth(16); f.resticon:SetHeight(16)
+    f.resticon:SetWidth(12); f.resticon:SetHeight(12)
     f.resticon:SetTexture("Interface\\Icons\\Spell_Nature_Sleep")
     f.resticon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     f.resticon:Hide()
@@ -247,7 +252,7 @@ HoryUI:RegisterModule("unitframes", true, function()
       if f.resticon then
         if IsResting() and f.name then
           f.resticon:ClearAllPoints()
-          f.resticon:SetPoint("LEFT", f.name, "LEFT", f.name:GetStringWidth() + 4, 0)
+          f.resticon:SetPoint("LEFT", f.name, "LEFT", f.name:GetStringWidth() + 6, 0)
           f.resticon:Show()
         else
           f.resticon:Hide()
@@ -288,6 +293,24 @@ HoryUI:RegisterModule("unitframes", true, function()
     if CombatTracked(f.unit) then f.cbLast = GetTime() end
   end
 
+  -- raid target marker (skull / cross / ...): 16px, riding the portrait's top
+  -- edge -- half in, half out -- so it reads as a tag on the UNIT, not as UI
+  -- chrome, and never collides with the top-left activity badge. Texcoords are
+  -- cut from the 4x2 UI-RaidTargetingIcons sheet directly (no FrameXML helper
+  -- dependency). Driven by RAID_TARGET_UPDATE + target changes.
+  local function UpdateRaidIcon(f)
+    if not f.raidicon then return end
+    local idx = UnitExists(f.unit) and GetRaidTargetIndex(f.unit)
+    if idx and idx > 0 then
+      local col = math.mod(idx - 1, 4)
+      local row = floor((idx - 1) / 4)
+      f.raidicon:SetTexCoord(col * 0.25, col * 0.25 + 0.25, row * 0.25, row * 0.25 + 0.25)
+      f.raidicon:Show()
+    else
+      f.raidicon:Hide()
+    end
+  end
+
   -- bar2h = height of the second bar (energy/power) the caller stacks under
   -- health; the frame height is derived from it so the portrait ends flush with
   -- that bar (no empty gap below).
@@ -308,6 +331,17 @@ HoryUI:RegisterModule("unitframes", true, function()
     BuildStateIcons(f)
     f.cx = PAD + leftpad + psz + PAD    -- left edge of the text/bar column
 
+    -- raid target marker (see UpdateRaidIcon); a holder frame lifts it above
+    -- the portrait's own regions so the icon never sinks behind the 2D face.
+    local mh = CreateFrame("Frame", nil, f.portrait)
+    mh:SetAllPoints(f.portrait)
+    mh:SetFrameLevel(f.portrait:GetFrameLevel() + 2)
+    f.raidicon = mh:CreateTexture(nil, "OVERLAY")
+    f.raidicon:SetWidth(16); f.raidicon:SetHeight(16)
+    f.raidicon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    f.raidicon:SetPoint("CENTER", f.portrait, "TOP", 0, 0)
+    f.raidicon:Hide()
+
     f.level = f:CreateFontString(nil, "OVERLAY")
     HoryUI.SetFont(f.level, HoryUI.font.number, 11, "OUTLINE")
     f.level:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -PAD)
@@ -325,6 +359,8 @@ HoryUI:RegisterModule("unitframes", true, function()
     f.health:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -(PAD + NAMEH))
     f.health:SetHeight(HEALTH_H)
     HoryUI.CreateBackdrop(f.health)
+    -- incoming-heal ghost fill; layout width, never GetWidth() (sec.2)
+    HoryUI.AttachIncHeal(f.health, W - f.cx - PAD)
 
     f.hpval = f.health:CreateFontString(nil, "OVERLAY")
     HoryUI.SetFont(f.hpval, HoryUI.font.number, 11, "OUTLINE")
@@ -449,6 +485,7 @@ HoryUI:RegisterModule("unitframes", true, function()
   player:RegisterEvent("PLAYER_UPDATE_RESTING")
   player:RegisterEvent("UNIT_FACTION")
   player:RegisterEvent("UNIT_PORTRAIT_UPDATE")
+  player:RegisterEvent("RAID_TARGET_UPDATE")
   player:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
       this:UnregisterAllEvents()
@@ -459,6 +496,7 @@ HoryUI:RegisterModule("unitframes", true, function()
     if event == "PLAYER_REGEN_DISABLED" then inCombat = true; return end
     if event == "PLAYER_REGEN_ENABLED" then inCombat = false; return end
     if event == "PLAYER_UPDATE_RESTING" then UpdateState(player); return end
+    if event == "RAID_TARGET_UPDATE" then UpdateRaidIcon(player); return end
     if event == "UNIT_FACTION" then if arg1 == "player" then UpdatePvP(player) end; return end
     if event == "UNIT_PORTRAIT_UPDATE" then
       if arg1 == "player" then SetPortrait(player) end
@@ -508,9 +546,18 @@ HoryUI:RegisterModule("unitframes", true, function()
     SetPortrait(player)
     UpdatePvP(player)
     UpdateState(player)
+    UpdateRaidIcon(player)
   end)
 
   player:SetScript("OnUpdate", function()
+    -- incoming-heal ghost: heals appear/expire without any unit event, so
+    -- refresh on a light throttle (matches the target frame's 0.2s tick).
+    this.hacc = (this.hacc or 0) + arg1
+    if this.hacc >= 0.2 then
+      this.hacc = 0
+      if this.health.UpdateIncHeal then this.health.UpdateIncHeal("player") end
+    end
+
     -- out-of-combat fade (per design sec.8.5): full alpha in combat / mouseover
     -- / injured / while unlocked; dimmed at rest. Fades the whole frame (portrait
     -- included) -- the dimmed portrait at rest is intentional.
@@ -740,6 +787,7 @@ HoryUI:RegisterModule("unitframes", true, function()
   target:RegisterEvent("PLAYER_COMBO_POINTS")
   target:RegisterEvent("UNIT_FACTION")
   target:RegisterEvent("UNIT_PORTRAIT_UPDATE")
+  target:RegisterEvent("RAID_TARGET_UPDATE")
   target:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
       this:UnregisterAllEvents()
@@ -748,6 +796,7 @@ HoryUI:RegisterModule("unitframes", true, function()
       return
     end
     if event == "PLAYER_COMBO_POINTS" then UpdateCombo(); return end
+    if event == "RAID_TARGET_UPDATE" then UpdateRaidIcon(target); return end
     if event == "UNIT_FACTION" then if arg1 == "target" then UpdatePvP(target) end; return end
     if event == "UNIT_PORTRAIT_UPDATE" then
       if arg1 == "target" then SetPortrait(target) end
@@ -770,6 +819,7 @@ HoryUI:RegisterModule("unitframes", true, function()
     UpdateToT()
     UpdatePvP(target)
     UpdateState(target)
+    UpdateRaidIcon(target)
   end)
 
   -- target-of-target has no change event in 1.12 -- poll it lightly. The target's
@@ -780,6 +830,8 @@ HoryUI:RegisterModule("unitframes", true, function()
     this.tacc = 0
     UpdateToT()
     UpdateState(target)
+    -- incoming heals appear/expire without a unit event -- same 0.2s tick
+    if this.health.UpdateIncHeal then this.health.UpdateIncHeal("target") end
   end)
 
   HoryUI.RegisterPanel(target, "target", "Target", "CENTER", 40, -150)
@@ -792,6 +844,7 @@ HoryUI:RegisterModule("unitframes", true, function()
     UpdateHealth(target); UpdatePower(target); SetPortrait(target)
     UpdateCombo(); UpdateToT()
     UpdatePvP(player); UpdateState(player); UpdatePvP(target); UpdateState(target)
+    UpdateRaidIcon(player); UpdateRaidIcon(target)
   end)
 
   UpdateHealth(player); UpdateEnergy(); SetPortrait(player)

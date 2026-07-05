@@ -38,6 +38,8 @@ HoryUI:RegisterModule("party", true, function()
     f.health:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -15)
     f.health:SetHeight(8)
     HoryUI.CreateBackdrop(f.health)
+    -- incoming-heal ghost fill; layout width (4px insets each side), never GetWidth()
+    HoryUI.AttachIncHeal(f.health, WIDTH - 8)
 
     f.power = HoryUI.CreateStatusBar(f, C.mana)
     f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, -2)
@@ -75,8 +77,10 @@ HoryUI:RegisterModule("party", true, function()
       if this.hl then this.hl:Hide() end
     end)
 
-    -- debuff icons (overlay row, right -> left). Scanned on a throttle since
-    -- 1.12 has no UNIT_AURA event; UnitDebuff(unit, i) -> texture, stacks.
+    -- debuff icons: a row just OUTSIDE the frame's right edge, growing outward
+    -- (they used to overlay the health/power bars, which hid the bars under a
+    -- full debuff row). Scanned on a throttle since 1.12 has no UNIT_AURA event;
+    -- UnitDebuff(unit, i) -> texture, stacks.
     local dh = CreateFrame("Frame", nil, f)
     dh:SetAllPoints(f)
     dh:SetFrameLevel(f:GetFrameLevel() + 5)
@@ -87,9 +91,9 @@ HoryUI:RegisterModule("party", true, function()
       d.tex:SetWidth(DSIZE); d.tex:SetHeight(DSIZE)
       d.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
       if k == 1 then
-        d.tex:SetPoint("RIGHT", f, "RIGHT", -3, 0)
+        d.tex:SetPoint("LEFT", f, "RIGHT", 3, 0)
       else
-        d.tex:SetPoint("RIGHT", f.debuffs[k - 1].tex, "LEFT", -1, 0)
+        d.tex:SetPoint("LEFT", f.debuffs[k - 1].tex, "RIGHT", 1, 0)
       end
       d.count = dh:CreateFontString(nil, "OVERLAY")
       HoryUI.SetFont(d.count, HoryUI.font.number, 8, "OUTLINE")
@@ -165,6 +169,8 @@ HoryUI:RegisterModule("party", true, function()
     if pmax <= 0 then pmax = 1 end
     f.power:SetMinMaxValues(0, pmax)
     f.power:SetValue(UnitMana(unit))
+
+    if f.health.UpdateIncHeal then f.health.UpdateIncHeal(unit) end
   end
 
   local function UpdateAll()
@@ -228,7 +234,12 @@ HoryUI:RegisterModule("party", true, function()
     dacc = dacc + arg1
     if dacc < 0.3 then return end
     dacc = 0
-    for i = 1, 4 do UpdateDebuffs(frames[i]) end
+    for i = 1, 4 do
+      local f = frames[i]
+      UpdateDebuffs(f)
+      -- incoming heals appear/expire without a unit event -- same throttled tick
+      if f:IsShown() and f.health.UpdateIncHeal then f.health.UpdateIncHeal(f.unit) end
+    end
   end)
 
   HoryUI.RegisterPanel(container, "party", "Party", "LEFT", 20, 100)

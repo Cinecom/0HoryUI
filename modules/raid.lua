@@ -127,6 +127,8 @@ HoryUI:RegisterModule("raid", true, function()
       f.health:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
       f.health:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
       f.health:SetHeight(13)
+      -- incoming-heal ghost fill; layout width (1px insets), never GetWidth()
+      HoryUI.AttachIncHeal(f.health, CW - 2)
 
       f.power = HoryUI.CreateStatusBar(f, C.mana)
       f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, -1)
@@ -242,6 +244,8 @@ HoryUI:RegisterModule("raid", true, function()
     if pmax <= 0 then pmax = 1 end
     f.power:SetMinMaxValues(0, pmax)
     f.power:SetValue(UnitMana(unit))
+
+    if f.health.UpdateIncHeal then f.health.UpdateIncHeal(unit) end
 
     -- status icons: leader (gold star) / assist (silver star) + master looter,
     -- packed from the top-left; the name starts just after them.
@@ -392,7 +396,12 @@ HoryUI:RegisterModule("raid", true, function()
     dacc = dacc + arg1
     if dacc < 0.3 then return end
     dacc = 0
-    for i = 1, 40 do UpdateDebuffs(frames[i]) end
+    for i = 1, 40 do
+      local f = frames[i]
+      UpdateDebuffs(f)
+      -- incoming heals appear/expire without a unit event -- same throttled tick
+      if f:IsShown() and f.health.UpdateIncHeal then f.health.UpdateIncHeal(f.unit) end
+    end
   end)
 
   HoryUI.RegisterPanel(container, "raid", "Raid", "LEFT", 20, -100)

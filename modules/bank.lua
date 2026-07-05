@@ -1,51 +1,53 @@
--- HoryUI :: one-bag (Garnet)
+-- HoryUI :: one-bank (Garnet)
 --
--- Replaces WoW's five separate ContainerFrames with a single movable, styled
--- grid showing every item from bags 0-4 (+ the keyring, container -2).
+-- The bank analogue of modules/bags.lua: replaces Blizzard's BankFrame with a
+-- single movable, styled grid showing the base bank container (-1) plus every
+-- equipped bank bag (containers 5..10). Same techniques + look as the one-bag,
+-- so the two frames read as one product.
 --
--- TECHNIQUE (borrowed from pfUI/modules/bags.lua, minimal HoryUI version):
--- we do NOT hand-roll item buttons. Each slot is a real Button built from
+-- TECHNIQUE (see modules/bags.lua): every slot is a real Button built from
 -- "ContainerFrameItemButtonTemplate" parented to a per-bag holder whose
--- :SetID(bag) the template reads; the button's :SetID(slot) does the rest.
--- That template carries all of Blizzard's behaviour for free -- left-click
--- use/equip, right-click, shift-click split/link, drag, GameTooltip, cooldown
--- swipe -- so we only ever skin the frame and drive its texture/count/lock.
+-- :SetID(bag) the template reads; the button's :SetID(slot) does the rest. The
+-- container API (GetContainerItemInfo / PickupContainerItem / UseContainerItem /
+-- SetBagItem) all accept the bank container -1 and the bank bags, so all native
+-- click / drag / tooltip / cooldown behaviour comes for free.
+--
+-- The one bank-only piece is the purchasable bank BAG SLOTS: the options popup's
+-- icon strip shows the base bank, each equipped/empty bank bag slot (equippable
+-- like bags 1-4 via ContainerIDToInventoryID), and a "+" to buy the next slot.
 --
 -- Lua 5.0 / WoW 1.12 only -- see CLAUDE.md before editing.
 
-HoryUI:RegisterModule("bags", true, function()
+HoryUI:RegisterModule("bank", true, function()
   local C = HoryUI.color
   local getn, floor, mod = table.getn, math.floor, math.mod
   local strfind, strlower, strsub = string.find, string.lower, string.sub
 
-  -- the containers we present, in display order. -2 is the keyring (optional).
-  local BACKPACK = { 0, 1, 2, 3, 4 }
-  local KEYRING  = -2
+  -- bank container ids: -1 is the base bank; bank bags follow the backpack bags
+  -- (5 .. 4+NUM_BANKBAGSLOTS). Constants are stock 1.12 globals; keep fallbacks.
+  local BANK   = -1
+  local NBAG   = NUM_BAG_SLOTS or 4
+  local NBANK  = NUM_BANKBAGSLOTS or 6
 
-  -- layout scale (CLAUDE.md spacing: 1/2/4/8/12/16)
+  -- layout scale (CLAUDE.md spacing: 1/2/4/8/12/16) -- identical to the one-bag
   local SLOT   = 30          -- item button edge
   local GAP    = 2           -- gap between cells
   local PAD    = 8           -- frame inner padding
-  local HEADER = 22          -- header strip height (search / money / controls)
+  local HEADER = 22          -- header strip height (search / controls)
 
-  -- column clamp + default
-  local MINCOL, MAXCOL, DEFCOL = 6, 16, 10
-  if not HoryUIDB.bagCols then HoryUIDB.bagCols = DEFCOL end
-  if HoryUIDB.showKeyring == nil then HoryUIDB.showKeyring = false end
+  -- column clamp + default (own saved key so the bank grid is shaped independently)
+  local MINCOL, MAXCOL, DEFCOL = 6, 20, 14
+  if not HoryUIDB.bankCols then HoryUIDB.bankCols = DEFCOL end
 
   local function Cols()
-    local n = HoryUIDB.bagCols or DEFCOL
+    local n = HoryUIDB.bankCols or DEFCOL
     if n < MINCOL then n = MINCOL elseif n > MAXCOL then n = MAXCOL end
     return n
   end
 
   -- =========================================================================
-  -- money / count formatting --------------------------------------------------
+  -- money formatting (shared look with the one-bag) --------------------------
   -- =========================================================================
-  -- GetMoney() returns copper. 1g = 10000c, 1s = 100c. Vanilla FontStrings do NOT
-  -- render inline |T..|t texture escapes (that arrived in TBC -- Blizzard's own 1.12
-  -- MoneyFrame uses textured buttons, not text), which is why the coin markup showed
-  -- as raw text. We colour the g/s/c letters instead: compact, glanceable, reliable.
   local GOLD, SILVER, COPPER = "ffffd700", "ffc7c7cf", "ffeda55f"
   local function MoneyString(copper)
     copper = copper or 0
@@ -59,83 +61,74 @@ HoryUI:RegisterModule("bags", true, function()
     return out
   end
 
-  -- the active container list (keyring appended only when toggled on)
-  local containers = {}
-  local function RebuildContainerList()
-    for i = getn(containers), 1, -1 do containers[i] = nil end
-    for i = 1, getn(BACKPACK) do containers[i] = BACKPACK[i] end
-    if HoryUIDB.showKeyring then containers[getn(containers) + 1] = KEYRING end
-  end
-  RebuildContainerList()
+  -- the containers we present, in display order: base bank then every bank bag.
+  -- unpurchased / empty bank bags simply report 0 slots, so keeping them all in
+  -- the list is harmless (EnsureSlots hides any cell beyond the live size).
+  local containers = { BANK }
+  for b = NBAG + 1, NBAG + NBANK do containers[getn(containers) + 1] = b end
 
-  local function BagSize(bag)
-    if bag == KEYRING then return GetKeyRingSize and GetKeyRingSize() or 0 end
-    return GetContainerNumSlots(bag) or 0
-  end
+  local function BagSize(b) return GetContainerNumSlots(b) or 0 end
 
   -- =========================================================================
   -- main frame ---------------------------------------------------------------
   -- =========================================================================
-  local bag = CreateFrame("Frame", "HoryUIBag", UIParent)
-  bag:SetWidth(Cols() * (SLOT + GAP) - GAP + PAD * 2)
-  bag:SetHeight(120)
-  bag:SetFrameStrata("HIGH")
-  bag:EnableMouse(true)              -- swallow clicks so they don't fall through
-  HoryUI.CreateBackdrop(bag)
-  HoryUI.RegisterPanel(bag, "bags", "Bags", "BOTTOMRIGHT", -180, 200)
-  tinsert(UISpecialFrames, "HoryUIBag")   -- Esc closes it
+  local bank = CreateFrame("Frame", "HoryUIBank", UIParent)
+  bank:SetWidth(Cols() * (SLOT + GAP) - GAP + PAD * 2)
+  bank:SetHeight(120)
+  bank:SetFrameStrata("HIGH")
+  bank:EnableMouse(true)              -- swallow clicks so they don't fall through
+  HoryUI.CreateBackdrop(bank)
+  HoryUI.RegisterPanel(bank, "bank", "Bank", "TOPLEFT", 180, -120)
+  tinsert(UISpecialFrames, "HoryUIBank")   -- Esc closes it (-> OnHide -> CloseBankFrame)
 
-  -- direct drag: grab the bag by its body (header / padding) to move it, in addition
-  -- to the unlock-mover. RegisterPanel already made it SetMovable; persist on stop.
-  bag:RegisterForDrag("LeftButton")
-  bag:SetScript("OnDragStart", function() this:StartMoving() end)
-  bag:SetScript("OnDragStop", function()
+  -- tracks whether the banker is actually open, so hiding our frame (close button /
+  -- Esc) tells the server via CloseBankFrame while a BANKFRAME_CLOSED-driven hide
+  -- (already false) does not recurse. See the driver + OnHide below.
+  local bankOpen = false
+
+  -- direct drag: grab the frame body to move it (in addition to the unlock-mover)
+  bank:RegisterForDrag("LeftButton")
+  bank:SetScript("OnDragStart", function() this:StartMoving() end)
+  bank:SetScript("OnDragStop", function()
     this:StopMovingOrSizing()
-    HoryUI.SavePosition(this, "bags")
+    HoryUI.SavePosition(this, "bank")
   end)
 
   -- per-bag holders (carry the bag id via :SetID for the item template) -------
   local holders = {}      -- holders[bag] = Frame
   local slots = {}        -- slots[bag][slot] = Button
-  for i = 1, getn(BACKPACK) do
-    local b = BACKPACK[i]
-    holders[b] = CreateFrame("Frame", "HoryUIBagHolder" .. b, bag)
+  for ci = 1, getn(containers) do
+    local b = containers[ci]
+    -- a negative id reads awkwardly in a frame name; spell the base bank out
+    local suffix = (b == BANK) and "Bank" or b
+    holders[b] = CreateFrame("Frame", "HoryUIBankHolder" .. suffix, bank)
     holders[b]:SetID(b)
-    holders[b]:SetAllPoints(bag)
+    holders[b]:SetAllPoints(bank)
     slots[b] = {}
   end
-  -- keyring holder (a negative id reads awkwardly in a frame name; spell it out)
-  holders[KEYRING] = CreateFrame("Frame", "HoryUIBagHolderKeyring", bag)
-  holders[KEYRING]:SetID(KEYRING)
-  holders[KEYRING]:SetAllPoints(bag)
-  slots[KEYRING] = {}
 
   -- =========================================================================
   -- header: search + money + free + controls + close -------------------------
   -- =========================================================================
-  -- money (bottom-right, like a wallet line)
-  local money = bag:CreateFontString(nil, "OVERLAY")
+  local money = bank:CreateFontString(nil, "OVERLAY")
   HoryUI.SetFont(money, HoryUI.font.number, 11, "OUTLINE")
-  money:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -PAD, 6)
+  money:SetPoint("BOTTOMRIGHT", bank, "BOTTOMRIGHT", -PAD, 6)
   money:SetJustifyH("RIGHT")
   money:SetTextColor(C.text[1], C.text[2], C.text[3])
 
-  -- free-slot count (bottom-left)
-  local freetext = bag:CreateFontString(nil, "OVERLAY")
+  local freetext = bank:CreateFontString(nil, "OVERLAY")
   HoryUI.SetFont(freetext, HoryUI.font.number, 11, "OUTLINE")
-  freetext:SetPoint("BOTTOMLEFT", bag, "BOTTOMLEFT", PAD, 6)
+  freetext:SetPoint("BOTTOMLEFT", bank, "BOTTOMLEFT", PAD, 6)
   freetext:SetJustifyH("LEFT")
   freetext:SetTextColor(C.text2[1], C.text2[2], C.text2[3])
 
-  -- close button (top-right) -- reuse the themed button, "x" glyph
-  local close = HoryUI.CreateButton(bag, "x", function() bag:Hide() end)
+  local close = HoryUI.CreateButton(bank, "x", function() bank:Hide() end)
   close:SetWidth(HEADER - 4); close:SetHeight(HEADER - 4)
-  close:SetPoint("TOPRIGHT", bag, "TOPRIGHT", -PAD + 2, -PAD + 2)
+  close:SetPoint("TOPRIGHT", bank, "TOPRIGHT", -PAD + 2, -PAD + 2)
 
-  -- a tiny labelled square control (menu / keyring / sort / col steppers) ------
-  -- parent defaults to the bag; the popup-menu controls pass `menu` as parent.
+  -- a tiny labelled square control (menu / sort / col steppers / buy) ---------
   local function MakeControl(label, tip, onclick, w, parent)
-    local b = HoryUI.CreateButton(parent or bag, label, onclick)
+    local b = HoryUI.CreateButton(parent or bank, label, onclick)
     b:SetWidth(w or (HEADER - 4)); b:SetHeight(HEADER - 4)
     local oe, ol = b:GetScript("OnEnter"), b:GetScript("OnLeave")
     b:SetScript("OnEnter", function()
@@ -152,10 +145,9 @@ HoryUI:RegisterModule("bags", true, function()
   -- defined below; the header + popup-menu controls need forward references
   local Relayout, SortBags, PaintQuality
   local menu, RefreshBagIcons, HighlightBag, ClearHighlight
-  local colDown, colNum, colUp, PaintKey
+  local colDown, colNum, colUp
 
-  -- menu button (top-left) -- opens the options popup (columns / sort / bag icons)
-  local menuBtn = MakeControl("", "Bag options", function()
+  local menuBtn = MakeControl("", "Bank options", function()
     if menu:IsShown() then
       menu:Hide()
     else
@@ -163,8 +155,7 @@ HoryUI:RegisterModule("bags", true, function()
       menu:Show()
     end
   end)
-  menuBtn:SetPoint("TOPLEFT", bag, "TOPLEFT", PAD, -PAD + 2)
-  -- hamburger glyph (three flat rules) so the button reads as a menu affordance
+  menuBtn:SetPoint("TOPLEFT", bank, "TOPLEFT", PAD, -PAD + 2)
   for i = 1, 3 do
     local ln = menuBtn:CreateTexture(nil, "OVERLAY")
     ln:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -174,7 +165,7 @@ HoryUI:RegisterModule("bags", true, function()
   end
 
   -- search box (between the menu button and the close button)
-  local searchBox = CreateFrame("EditBox", "HoryUIBagSearch", bag)
+  local searchBox = CreateFrame("EditBox", "HoryUIBankSearch", bank)
   searchBox:SetHeight(HEADER - 6)
   searchBox:SetAutoFocus(false)
   searchBox:SetFont(HoryUI.font.normal, 11, "OUTLINE")
@@ -190,17 +181,15 @@ HoryUI:RegisterModule("bags", true, function()
 
   searchBox:SetPoint("LEFT", menuBtn, "RIGHT", 6, 0)
   searchBox:SetPoint("RIGHT", close, "LEFT", -6, 0)
-  searchBox:SetPoint("TOP", bag, "TOP", 0, -PAD + 1)
+  searchBox:SetPoint("TOP", bank, "TOP", 0, -PAD + 1)
 
   -- =========================================================================
-  -- search filter ------------------------------------------------------------
+  -- search filter (dim non-matching items) -----------------------------------
   -- =========================================================================
-  -- dim items whose name doesn't contain the query; empty query = all normal.
   local function ApplySearch()
     local q = searchBox:GetText()
     if q == nil then q = "" end
     q = strlower(q)
-    -- hint shows only when the box is empty AND unfocused (focus events drive it)
     if q == "" and not searchBox.focused then searchHint:Show() else searchHint:Hide() end
     local filtering = (q ~= "")
     for ci = 1, getn(containers) do
@@ -215,7 +204,6 @@ HoryUI:RegisterModule("bags", true, function()
             local link = GetContainerItemLink(b, s)
             local match = false
             if link then
-              -- item name is the bracketed segment of the link
               local _, _, nm = strfind(link, "%[(.+)%]")
               if nm and strfind(strlower(nm), q, 1, true) then match = true end
             end
@@ -233,36 +221,30 @@ HoryUI:RegisterModule("bags", true, function()
   searchBox:SetScript("OnEditFocusLost", function() searchBox.focused = false; ApplySearch() end)
 
   -- =========================================================================
-  -- options popup: columns + sort + the bag icons ----------------------------
+  -- options popup: columns + sort + the bank-bag icon strip ------------------
   -- =========================================================================
-  -- the strip always shows all six containers (backpack / bags 1-4 / keyring);
-  -- hovering one focuses its items, and the keyring icon doubles as its toggle.
-  local STRIP = { 0, 1, 2, 3, 4, KEYRING }
   local MENUPAD = 8
   local rowH = HEADER - 4
   local BAGICON = 24
-  -- the strip's six icons set the menu width; rows above stretch to match.
-  local STRIPW = getn(STRIP) * (BAGICON + GAP) - GAP
+  -- the strip can hold at most: base bank + every bank bag + a buy button. Size
+  -- the popup to that maximum so it never resizes as slots are bought.
+  local STRIPMAX = 1 + NBANK + 1
+  local STRIPW = STRIPMAX * (BAGICON + GAP) - GAP
   local MENUW = STRIPW + MENUPAD * 2
 
-  menu = CreateFrame("Frame", "HoryUIBagMenu", bag)
+  menu = CreateFrame("Frame", "HoryUIBankMenu", bank)
   menu:SetFrameStrata("DIALOG")
-  menu:EnableMouse(true)               -- swallow clicks so they don't reach slots
+  menu:EnableMouse(true)
   menu:SetWidth(MENUW)
   menu:SetHeight(MENUPAD * 2 + (rowH + 6) * 2 + BAGICON)
   HoryUI.CreateBackdrop(menu)
-  -- ABOVE the bag so it never covers the grid (grows up from the menu button)
   menu:SetPoint("BOTTOMLEFT", menuBtn, "TOPLEFT", 0, 4)
   menu:Hide()
-  -- close the popup with the bag (and drop any active highlight)
-  bag:SetScript("OnHide", function() menu:Hide() end)
 
-  -- row y-offsets (each row rowH tall, 6px gap); r3 = the bag-icon strip
   local r1 = -MENUPAD
   local r2 = -(MENUPAD + (rowH + 6))
   local r3 = -(MENUPAD + (rowH + 6) * 2)
 
-  -- columns row: label (left) + steppers ( - [n] + ) on the right
   local colLabel = menu:CreateFontString(nil, "OVERLAY")
   HoryUI.SetFont(colLabel, HoryUI.font.normal, 11, "OUTLINE")
   colLabel:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r1 - 3)
@@ -270,8 +252,8 @@ HoryUI:RegisterModule("bags", true, function()
   colLabel:SetTextColor(C.text2[1], C.text2[2], C.text2[3])
 
   colUp = MakeControl("+", "More columns", function()
-    HoryUIDB.bagCols = Cols() + 1
-    if HoryUIDB.bagCols > MAXCOL then HoryUIDB.bagCols = MAXCOL end
+    HoryUIDB.bankCols = Cols() + 1
+    if HoryUIDB.bankCols > MAXCOL then HoryUIDB.bankCols = MAXCOL end
     if Relayout then Relayout() end
   end, nil, menu)
   colUp:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -MENUPAD, r1)
@@ -283,26 +265,22 @@ HoryUI:RegisterModule("bags", true, function()
   colNum:SetWidth(18); colNum:SetJustifyH("CENTER")
 
   colDown = MakeControl("-", "Fewer columns", function()
-    HoryUIDB.bagCols = Cols() - 1
-    if HoryUIDB.bagCols < MINCOL then HoryUIDB.bagCols = MINCOL end
+    HoryUIDB.bankCols = Cols() - 1
+    if HoryUIDB.bankCols < MINCOL then HoryUIDB.bankCols = MINCOL end
     if Relayout then Relayout() end
   end, nil, menu)
   colDown:SetPoint("RIGHT", colNum, "LEFT", -4, 0)
 
-  -- sort row (full width)
-  local sortBtn = MakeControl("Sort", "Compact bags (remove gaps)", function()
+  local sortBtn = MakeControl("Sort", "Compact the bank (remove gaps)", function()
     if SortBags then SortBags() end
   end, nil, menu)
   sortBtn:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r2)
   sortBtn:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -MENUPAD, r2)
 
-  -- the always-visible bag-icon strip
   local bagStrip = CreateFrame("Frame", nil, menu)
   bagStrip:SetWidth(STRIPW); bagStrip:SetHeight(BAGICON)
   bagStrip:SetPoint("TOPLEFT", menu, "TOPLEFT", MENUPAD, r3)
 
-  -- a container is "active" only if it's in the live grid (keyring may be off);
-  -- highlighting an inactive container would dim everything, so guard it.
   local function ContainerActive(hb)
     for ci = 1, getn(containers) do
       if containers[ci] == hb then return true end
@@ -310,9 +288,7 @@ HoryUI:RegisterModule("bags", true, function()
     return false
   end
 
-  -- highlight = mark every cell of one bag (garnet border, even when empty) and
-  -- dim the other bags' items so the focused bag pops. Clearing restores the
-  -- quality borders + the search-filter dim state.
+  -- highlight = focus one bank container (garnet border on its cells, dim the rest)
   HighlightBag = function(hb)
     if not ContainerActive(hb) then return end
     for ci = 1, getn(containers) do
@@ -342,16 +318,15 @@ HoryUI:RegisterModule("bags", true, function()
     ApplySearch()
   end
 
-  -- resting border: garnet for the keyring while it's on, plain dark otherwise
-  local function IconRestColor(b)
-    if b == KEYRING and HoryUIDB.showKeyring then
-      return C.accent[1], C.accent[2], C.accent[3], 1
-    end
-    return 0, 0, 0, 1
-  end
+  -- how many bank bag slots are purchased (empty ones are still usable slots)
+  local function NumBankSlots() return GetNumBankSlots and (GetNumBankSlots() or 0) or 0 end
 
-  local bagIcons = {}      -- bagIcons[bag] = Button
-  local function MakeBagIcon(b)
+  -- the strip's contents are dynamic (only purchased bank bags + one buy button),
+  -- so it's rebuilt each time the popup opens / a slot is bought.
+  local bagIcons = {}      -- bagIcons[id] = Button (id: BANK, a bank-bag container, or "buy")
+  local buyBtn
+
+  local function MakeBagIcon(id)
     local ib = CreateFrame("Button", nil, bagStrip)
     ib:SetWidth(BAGICON); ib:SetHeight(BAGICON)
     HoryUI.CreateBackdrop(ib)
@@ -359,39 +334,29 @@ HoryUI:RegisterModule("bags", true, function()
     ib.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     ib.tex:SetPoint("TOPLEFT", ib, "TOPLEFT", 1, -1)
     ib.tex:SetPoint("BOTTOMRIGHT", ib, "BOTTOMRIGHT", -1, 1)
+
     ib:SetScript("OnEnter", function()
-      HighlightBag(b)
+      HighlightBag(id)
       if ib.backdrop then ib.backdrop:SetBackdropBorderColor(C.accent[1], C.accent[2], C.accent[3], 1) end
       GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-      if b == 0 then GameTooltip:SetText("Backpack")
-      elseif b == KEYRING then
-        GameTooltip:SetText("Keyring")
-        GameTooltip:AddLine(HoryUIDB.showKeyring and "Click to hide" or "Click to show", 0.7, 0.7, 0.7)
-      else GameTooltip:SetInventoryItem("player", ContainerIDToInventoryID(b)) end
+      if id == BANK then
+        GameTooltip:SetText("Bank")
+      else
+        local inv = GetInventoryItemTexture("player", ContainerIDToInventoryID(id))
+        if inv then GameTooltip:SetInventoryItem("player", ContainerIDToInventoryID(id))
+        else GameTooltip:SetText("Empty Bank Bag Slot"); GameTooltip:AddLine("Drag a bag here", 0.7, 0.7, 0.7) end
+      end
       GameTooltip:Show()
     end)
     ib:SetScript("OnLeave", function()
       ClearHighlight()
-      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(IconRestColor(b)) end
+      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
       GameTooltip:Hide()
     end)
-    -- the keyring icon is its own on/off toggle (it replaces the old "K" button)
-    if b == KEYRING then
-      ib:SetScript("OnClick", function()
-        HoryUIDB.showKeyring = not HoryUIDB.showKeyring
-        RebuildContainerList()
-        if Relayout then Relayout() end
-        HighlightBag(KEYRING)        -- re-focus if it's now on (no-op if off)
-      end)
-    elseif b >= 1 then
-      -- an equippable bag slot (bags 1-4). The custom icon carried no click/drag
-      -- handlers, so bags couldn't be equipped, swapped, or taken off. Wire the
-      -- native bag-slot behaviour (mirrors Blizzard's BagSlotButtonTemplate) on
-      -- the slot's inventory id: left-click with a bag on the cursor puts it in
-      -- (swapping any current bag), left-click with an empty cursor picks the
-      -- equipped bag up (take off / move), and drag mirrors that -- drag off to
-      -- remove, drop a bag on to equip.
-      local invID = ContainerIDToInventoryID(b)
+
+    -- a bank bag is an equippable slot (like bags 1-4), reached by its inventory id
+    if id ~= BANK then
+      local invID = ContainerIDToInventoryID(id)
       ib:SetID(invID)
       ib:RegisterForDrag("LeftButton")
       ib:SetScript("OnClick", function()
@@ -403,56 +368,88 @@ HoryUI:RegisterModule("bags", true, function()
     return ib
   end
 
-  RefreshBagIcons = function()
-    for i = 1, getn(STRIP) do
-      local b = STRIP[i]
-      if not bagIcons[b] then bagIcons[b] = MakeBagIcon(b) end
-      local ib = bagIcons[b]
-      ib:ClearAllPoints()
-      ib:SetPoint("LEFT", bagStrip, "LEFT", (i - 1) * (BAGICON + GAP), 0)
-      local tex
-      if b == 0 then tex = "Interface\\Buttons\\Button-Backpack-Up"
-      elseif b == KEYRING then tex = "Interface\\ContainerFrame\\KeyRing-Bag-Icon"
-      else
-        -- a bag slot with no bag equipped shows the empty bag-slot art, not a
-        -- backpack -- so it reads as "slot free" instead of a real container.
-        tex = GetInventoryItemTexture("player", ContainerIDToInventoryID(b))
-          or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag"
+  -- the "+" buy button for the next bank bag slot (its own affordance, not a bag)
+  local function MakeBuyIcon()
+    local b = HoryUI.CreateButton(bagStrip, "+", function()
+      StaticPopup_Show("CONFIRM_BUY_BANK_SLOT")
+    end)
+    b:SetWidth(BAGICON); b:SetHeight(BAGICON)
+    local oe, ol = b:GetScript("OnEnter"), b:GetScript("OnLeave")
+    b:SetScript("OnEnter", function()
+      if oe then oe() end
+      GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+      GameTooltip:SetText("Buy Bank Bag Slot")
+      if GetBankSlotCost then
+        GameTooltip:AddLine("Cost: " .. MoneyString(GetBankSlotCost(NumBankSlots())), 1, 1, 1)
       end
-      ib.tex:SetTexture(tex or "Interface\\Buttons\\Button-Backpack-Up")
-      if ib.backdrop then ib.backdrop:SetBackdropBorderColor(IconRestColor(b)) end
-      ib:Show()
-    end
+      GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if ol then ol() end; GameTooltip:Hide() end)
+    return b
   end
 
-  -- keep the keyring icon's active border in sync (called from Relayout)
-  PaintKey = function()
-    if bagIcons[KEYRING] and bagIcons[KEYRING].backdrop then
-      bagIcons[KEYRING].backdrop:SetBackdropBorderColor(IconRestColor(KEYRING))
+  RefreshBagIcons = function()
+    local n = NumBankSlots()
+    local i = 0   -- running strip position (0-based)
+
+    -- base bank first
+    if not bagIcons[BANK] then bagIcons[BANK] = MakeBagIcon(BANK) end
+    local bankIcon = bagIcons[BANK]
+    bankIcon:ClearAllPoints()
+    bankIcon:SetPoint("LEFT", bagStrip, "LEFT", i * (BAGICON + GAP), 0)
+    bankIcon.tex:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
+    if bankIcon.backdrop then bankIcon.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
+    bankIcon:Show()
+    i = i + 1
+
+    -- one icon per purchased bank bag slot (equipped bag art, else empty-slot art)
+    for slot = 1, NBANK do
+      local b = NBAG + slot
+      local ib = bagIcons[b]
+      if slot <= n then
+        if not ib then ib = MakeBagIcon(b); bagIcons[b] = ib end
+        ib:ClearAllPoints()
+        ib:SetPoint("LEFT", bagStrip, "LEFT", i * (BAGICON + GAP), 0)
+        ib.tex:SetTexture(GetInventoryItemTexture("player", ContainerIDToInventoryID(b))
+          or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
+        if ib.backdrop then ib.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
+        ib:Show()
+        i = i + 1
+      elseif ib then
+        ib:Hide()
+      end
+    end
+
+    -- the buy button, only while there are still slots to purchase
+    if n < NBANK then
+      if not buyBtn then buyBtn = MakeBuyIcon() end
+      buyBtn:ClearAllPoints()
+      buyBtn:SetPoint("LEFT", bagStrip, "LEFT", i * (BAGICON + GAP), 0)
+      buyBtn:Show()
+    elseif buyBtn then
+      buyBtn:Hide()
     end
   end
 
   menu:SetScript("OnHide", function() if ClearHighlight then ClearHighlight() end end)
+  bank:SetScript("OnHide", function()
+    menu:Hide()
+    -- user-initiated close (button / Esc) while the banker is open: notify the
+    -- server. A BANKFRAME_CLOSED-driven hide clears bankOpen first, so no recursion.
+    if bankOpen then CloseBankFrame() end
+  end)
 
   -- =========================================================================
   -- item buttons -------------------------------------------------------------
   -- =========================================================================
-  -- (PaintQuality is forward-declared up top so ClearHighlight can call it)
-
   local function MakeSlot(b, s)
-    local name = "HoryUIBagItem" .. (b == KEYRING and "K" or b) .. "_" .. s
+    local name = "HoryUIBankItem" .. (b == BANK and "Bank" or b) .. "_" .. s
     local btn = CreateFrame("Button", name, holders[b], "ContainerFrameItemButtonTemplate")
     btn:SetID(s)
     btn:SetWidth(SLOT); btn:SetHeight(SLOT)
     btn:SetNormalTexture("")          -- drop the chunky default border art
     HoryUI.CreateBackdrop(btn)
 
-    -- keyring cells get a faint warm (gold) fill so they read as "keys" at a glance
-    if b == KEYRING and btn.backdrop then
-      btn.backdrop:SetBackdropColor(0.15, 0.13, 0.07, HoryUI.bg_alpha)
-    end
-
-    -- icon: trim the default art's transparent edge, inset inside our border
     btn.icon = getglobal(name .. "IconTexture")
     if btn.icon then
       btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -461,7 +458,6 @@ HoryUI:RegisterModule("bags", true, function()
       btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
     end
 
-    -- stack count -> tabular number, bottom-right
     btn.count = getglobal(name .. "Count")
     if btn.count then
       HoryUI.SetFont(btn.count, HoryUI.font.number, 11, "OUTLINE")
@@ -469,37 +465,35 @@ HoryUI:RegisterModule("bags", true, function()
       btn.count:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
     end
 
-    -- cooldown swipe comes with the template; just thin its art match
     btn.cd = getglobal(name .. "Cooldown")
 
-    -- The template's own OnEnter/OnLeave already drive the GameTooltip + the native
-    -- highlight glow, so we leave them untouched. (A garnet border-flash on hover used
-    -- to live here, but it collided with the item-quality border -- removed.)
-
-    -- merchant sell-race guard: a right-click on an already-locked slot (a sell
-    -- still in flight) sends a duplicate sell the server drops WITHOUT replying,
-    -- and the slot then stays locked until a full client restart. Swallow exactly
-    -- that click -- locked is read at click time, so this closes the window the
-    -- throttled grey-out repaint used to leave open. Clicks with an item on the
-    -- cursor pass through (clicking the locked source slot puts a pickup back).
-    local origClick = btn:GetScript("OnClick")
-    btn:SetScript("OnClick", function()
-      if arg1 == "RightButton" and not CursorHasItem()
-          and MerchantFrame and MerchantFrame:IsShown() then
-        local _, _, locked = GetContainerItemInfo(b, s)
-        if locked then return end
-      end
-      if origClick then origClick() end
-    end)
+    -- The base bank container (-1) needs its own tooltip: the template's native
+    -- OnEnter calls GameTooltip:SetBagItem(bag, slot), and in 1.12 SetBagItem does
+    -- NOT populate the bank container (-1) -- it comes up empty, so only appended
+    -- rows (e.g. the vendorprice coin row) showed, with no name/description. Bank
+    -- items must be shown by their inventory slot; fall back to the item link.
+    -- (Bank bags 5-10 are ordinary containers, so their native SetBagItem works.)
+    if b == BANK then
+      btn:SetScript("OnEnter", function()
+        local slot = this:GetID()
+        local link = GetContainerItemLink(BANK, slot)
+        if not link then GameTooltip:Hide(); return end
+        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+        local shown
+        if BankButtonIDToInvSlotID then
+          shown = GameTooltip:SetInventoryItem("player", BankButtonIDToInvSlotID(slot))
+        end
+        if not shown then GameTooltip:SetHyperlink(link) end
+        GameTooltip:Show()
+      end)
+      btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
 
     return btn
   end
 
-  -- colour a slot's border by item quality (uncommon+), else the soft default
-  -- colour the border from the item LINK's quality hex (|cffRRGGBB). Turtle leaves
-  -- GetContainerItemInfo's quality unset, so the link is the reliable source. Only
-  -- uncommon+ get a colour; common (ffffff) / poor (9d9d9d) / empty keep the plain
-  -- dark border so the grid stays calm and "rarity" actually reads.
+  -- colour a slot's border from the item LINK's quality hex (|cffRRGGBB); Turtle
+  -- leaves GetContainerItemInfo's quality unset, so the link is the reliable source.
   PaintQuality = function(btn)
     if not btn or not btn.backdrop then return end
     local r, g, bl
@@ -518,7 +512,6 @@ HoryUI:RegisterModule("bags", true, function()
     else btn.backdrop:SetBackdropBorderColor(0, 0, 0, 1) end
   end
 
-  -- ensure slots[b][1..size] exist; hide any beyond the current size
   local function EnsureSlots(b)
     local size = BagSize(b)
     for s = 1, size do
@@ -538,12 +531,11 @@ HoryUI:RegisterModule("bags", true, function()
     if not btn then return end
     local texture, count, locked, quality = GetContainerItemInfo(b, s)
     btn.quality = quality
-    btn.link = GetContainerItemLink(b, s)   -- the link carries the true quality colour
+    btn.link = GetContainerItemLink(b, s)
     SetItemButtonTexture(btn, texture)
     SetItemButtonCount(btn, count)
     SetItemButtonDesaturated(btn, locked, 0.5, 0.5, 0.5)
     btn.hasItem = texture and 1 or nil
-    -- cooldown swipe (template helper resolves <name>Cooldown itself)
     ContainerFrame_UpdateCooldown(b, btn)
     PaintQuality(btn)
     btn:Show()
@@ -560,20 +552,9 @@ HoryUI:RegisterModule("bags", true, function()
   Relayout = function()
     local cols = Cols()
     colNum:SetText(cols)
-    PaintKey()
-    -- refresh the bag-slot icon textures so an equip/swap shows the new bag while
-    -- the options popup is open (icons are hidden otherwise, so skip the work).
     if menu and menu:IsShown() and RefreshBagIcons then RefreshBagIcons() end
 
-    -- the keyring is the only container that can leave the active set; when it's
-    -- off its buttons must be hidden or they'd linger from the last layout.
-    if not HoryUIDB.showKeyring then
-      for s = 1, getn(slots[KEYRING]) do
-        if slots[KEYRING][s] then slots[KEYRING][s]:Hide() end
-      end
-    end
-
-    local index = 0          -- running cell index across all containers
+    local index = 0
     for ci = 1, getn(containers) do
       local b = containers[ci]
       local size = EnsureSlots(b)
@@ -582,7 +563,7 @@ HoryUI:RegisterModule("bags", true, function()
         local col = mod(index, cols)
         local row = floor(index / cols)
         btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", bag, "TOPLEFT",
+        btn:SetPoint("TOPLEFT", bank, "TOPLEFT",
           PAD + col * (SLOT + GAP),
           -(PAD + HEADER + row * (SLOT + GAP)))
         UpdateSlot(b, s)
@@ -590,12 +571,11 @@ HoryUI:RegisterModule("bags", true, function()
       end
     end
 
-    -- size the frame to the grid (+ header + footer line for money/free)
     local rows = (index > 0) and (floor((index - 1) / cols) + 1) or 1
     local gridW = cols * (SLOT + GAP) - GAP
     local FOOTER = 18
-    bag:SetWidth(gridW + PAD * 2)
-    bag:SetHeight(PAD + HEADER + rows * (SLOT + GAP) - GAP + FOOTER + PAD)
+    bank:SetWidth(gridW + PAD * 2)
+    bank:SetHeight(PAD + HEADER + rows * (SLOT + GAP) - GAP + FOOTER + PAD)
 
     ApplySearch()
   end
@@ -603,9 +583,7 @@ HoryUI:RegisterModule("bags", true, function()
   -- =========================================================================
   -- header readouts: money + free slots --------------------------------------
   -- =========================================================================
-  local function UpdateMoney()
-    money:SetText(MoneyString(GetMoney()))
-  end
+  local function UpdateMoney() money:SetText(MoneyString(GetMoney())) end
 
   local function UpdateFree()
     local free, total = 0, 0
@@ -621,35 +599,24 @@ HoryUI:RegisterModule("bags", true, function()
   end
 
   -- =========================================================================
-  -- sort: honest "compact" -- 1.12 exposes no SortBags(), and item moves are
-  -- async (each is a server round-trip that briefly *locks* the item), so a
-  -- synchronous in-frame reorder cannot be done reliably without scrambling.
-  -- We therefore do the one move that is always safe: COMPACTION. Pull each
-  -- item toward the first empty slot, removing gaps. Moving an item into a
-  -- guaranteed-empty slot can never overwrite anything, so a locked item just
-  -- no-ops and the user re-clicks. This is gap-removal, not type-grouping.
-  -- (Stacks still merge naturally as the game auto-stacks on move.)
+  -- sort: honest "compact" -- see modules/bags.lua for the full rationale.
+  -- Pull each item toward the first empty cell across the whole bank; moving
+  -- into a guaranteed-empty slot can never overwrite, so a locked item no-ops
+  -- and the user re-clicks. Gap-removal, not type-grouping.
   -- =========================================================================
   SortBags = function()
-    if not bag:IsShown() then return end
-    -- flat ordered list of (bag,slot) cells across active containers (no keyring)
+    if not bank:IsShown() then return end
     local cells = {}
     for ci = 1, getn(containers) do
       local b = containers[ci]
-      if b ~= KEYRING then
-        local size = BagSize(b)
-        for s = 1, size do
-          cells[getn(cells) + 1] = { b, s }
-        end
+      local size = BagSize(b)
+      for s = 1, size do
+        cells[getn(cells) + 1] = { b, s }
       end
     end
     local n = getn(cells)
     ClearCursor()
 
-    -- walk forward; for each empty cell, find the next occupied cell after it and
-    -- move that item back. One pass shifts everything toward the front by one gap
-    -- run; the BAG_UPDATE this triggers refreshes the grid and the user can click
-    -- again to settle the rest (locks resolve between clicks).
     local write = 1
     for read = 1, n do
       local br, sr = cells[read][1], cells[read][2]
@@ -658,7 +625,7 @@ HoryUI:RegisterModule("bags", true, function()
         local bw, sw = cells[write][1], cells[write][2]
         if write ~= read then
           local wtex, _, wlocked = GetContainerItemInfo(bw, sw)
-          if not wtex and not wlocked then        -- destination is empty: safe move
+          if not wtex and not wlocked then
             PickupContainerItem(br, sr)
             PickupContainerItem(bw, sw)
             ClearCursor()
@@ -670,59 +637,40 @@ HoryUI:RegisterModule("bags", true, function()
   end
 
   -- =========================================================================
-  -- open / close hooks -- route Blizzard's bag funcs to our frame ------------
+  -- hide Blizzard's BankFrame -- but keep it ALIVE ---------------------------
   -- =========================================================================
-  local function Open()  bag:Show() end
-  local function Close() bag:Hide() end
-  local function Toggle()
-    if bag:IsShown() then bag:Hide() else bag:Show() end
-  end
-
-  -- preserve the pre-hook globals as HoryUI.bagOrig.* so the override is
-  -- reversible (and any addon that hooked these can still reach the originals).
-  HoryUI.bagOrig = {
-    ToggleBackpack = ToggleBackpack, OpenBackpack = OpenBackpack,
-    OpenAllBags = OpenAllBags, CloseAllBags = CloseAllBags,
-    ToggleBag = ToggleBag, ToggleKeyRing = ToggleKeyRing,
-  }
-
-  ToggleBackpack = function() Toggle() end
-  OpenBackpack   = function() Open() end
-  OpenAllBags    = function() Toggle() end
-  CloseAllBags   = function() Close() end
-  ToggleBag      = function() Toggle() end          -- any bag click opens the one-bag
-  ToggleKeyRing  = function()
-    -- show the bag and force the keyring on (the in-frame "K" toggles it off)
-    HoryUIDB.showKeyring = true
-    RebuildContainerList()
-    Relayout()
-    bag:Show()
-  end
-
-  -- =========================================================================
-  -- hide Blizzard's ContainerFrame1..5 so they never appear -------------------
-  -- =========================================================================
-  -- our hooks already route every open path to HoryUIBag, so ContainerFrameN are
-  -- never told to show. Keep a light OnShow guard for any indirect :Show() (loot,
-  -- merchant). We deliberately leave their events registered -- the FrameXML
-  -- helpers we call (ContainerFrame_UpdateCooldown, SetItemButton*) act on the
-  -- button we pass, not on these frames, so a hidden-but-live frame is harmless.
-  for i = 1, 5 do
-    local cf = getglobal("ContainerFrame" .. i)
-    if cf then
-      cf:Hide()
-      cf:SetScript("OnShow", function() this:Hide() end)
+  -- We deliberately do NOT HideBlizzard() it (that unregisters its events):
+  -- Blizzard's BankFrame still runs its own bank bookkeeping on BANKFRAME_OPENED.
+  -- Instead we make it a sub-pixel, transparent, non-interactive speck in the
+  -- top-left corner (pfUI's proven approach) so it's invisible but functional.
+  -- Our own `driver` frame registers BANKFRAME_OPENED/CLOSED independently, so
+  -- our frame opens regardless. Guard against ShowUIPanel re-anchoring/re-sizing it.
+  if BankFrame then
+    local function TuckBankFrame()
+      BankFrame:SetAlpha(0)
+      BankFrame:SetScale(0.0001)
+      BankFrame:ClearAllPoints()
+      BankFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+      BankFrame:EnableMouse(false)
     end
+    TuckBankFrame()
+    -- ShowUIPanel resets scale/anchor when Blizzard shows the panel on open;
+    -- re-tuck on its OnShow so it never flashes into view.
+    local oldShow = BankFrame:GetScript("OnShow")
+    BankFrame:SetScript("OnShow", function()
+      if oldShow then oldShow() end
+      TuckBankFrame()
+    end)
   end
 
   -- =========================================================================
   -- lock (grey-out) repaint -- runs IMMEDIATELY on ITEM_LOCK_CHANGED, not on
-  -- the throttled tick: a sold item must grey before a fast second right-click
-  -- can fire a duplicate sell into the in-flight slot (see the MakeSlot guard).
-  -- Cheap (one GetContainerItemInfo per shown slot) and lock events don't burst
-  -- beyond a couple per transaction, so it needs no coalescing.
+  -- the throttled tick (mirrors bags.lua: the delayed grey-out left a window
+  -- where an in-flight slot still looked clickable). Skipped while the bank is
+  -- closed -- BANKFRAME_OPENED's Relayout repaints everything on open anyway.
   -- =========================================================================
   local function PaintLocks()
+    if not bank:IsShown() then return end
     for ci = 1, getn(containers) do
       local b = containers[ci]
       local size = BagSize(b)
@@ -739,17 +687,19 @@ HoryUI:RegisterModule("bags", true, function()
   -- =========================================================================
   -- driver: events + throttled relayout --------------------------------------
   -- =========================================================================
-  -- BAG_UPDATE can fire in bursts (loot, vendor) -- coalesce to one relayout.
   local driver = CreateFrame("Frame")
   driver.dirty = false
   driver.cdDirty = false
   driver.acc = 0
   driver:RegisterEvent("PLAYER_LOGOUT")
+  driver:RegisterEvent("BANKFRAME_OPENED")
+  driver:RegisterEvent("BANKFRAME_CLOSED")
   driver:RegisterEvent("BAG_UPDATE")
-  -- BAG_CLOSED fires when a bag is removed/swapped out of a slot; without it,
-  -- taking a bag off left its now-stale cells in the grid (looked "duplicated"
-  -- and the total cell count never shrank). Coalesced into the same relayout.
   driver:RegisterEvent("BAG_CLOSED")
+  -- base-bank content changes fire here (not BAG_UPDATE); bank-bag SLOT equip/
+  -- purchase changes container sizes and fires PLAYERBANKBAGSLOTS_CHANGED.
+  driver:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
+  driver:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
   driver:RegisterEvent("BAG_UPDATE_COOLDOWN")
   driver:RegisterEvent("ITEM_LOCK_CHANGED")
   driver:RegisterEvent("PLAYER_MONEY")
@@ -760,7 +710,17 @@ HoryUI:RegisterModule("bags", true, function()
       this:SetScript("OnEvent", nil)
       this:SetScript("OnUpdate", nil)
       return
-    elseif event == "BAG_UPDATE" or event == "BAG_CLOSED" then
+    elseif event == "BANKFRAME_OPENED" then
+      bankOpen = true
+      bank:Show()
+      -- sizes are only valid once the banker is open; populate immediately so the
+      -- grid isn't blank for a tick, then let follow-up events coalesce via dirty.
+      Relayout(); UpdateMoney(); UpdateFree()
+    elseif event == "BANKFRAME_CLOSED" then
+      bankOpen = false           -- cleared BEFORE the hide so OnHide won't recurse
+      bank:Hide()
+    elseif event == "BAG_UPDATE" or event == "BAG_CLOSED"
+        or event == "PLAYERBANKSLOTS_CHANGED" or event == "PLAYERBANKBAGSLOTS_CHANGED" then
       this.dirty = true
     elseif event == "BAG_UPDATE_COOLDOWN" then
       this.cdDirty = true
@@ -775,6 +735,12 @@ HoryUI:RegisterModule("bags", true, function()
     this.acc = this.acc + arg1
     if this.acc < 0.1 then return end
     this.acc = 0
+
+    -- nothing to do while the bank is closed (events still land but stay pending)
+    if not bank:IsShown() then
+      this.dirty = false; this.cdDirty = false
+      return
+    end
 
     if this.dirty then
       this.dirty = false
@@ -805,5 +771,5 @@ HoryUI:RegisterModule("bags", true, function()
   Relayout()
   UpdateMoney()
   UpdateFree()
-  bag:Hide()         -- start closed; opens via the hooked bag keys
+  bank:Hide()         -- start closed; opens on BANKFRAME_OPENED (at a banker)
 end)
