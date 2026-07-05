@@ -3,7 +3,8 @@
 -- sharpening stones, potions, ...). The tracked names live in
 -- HoryUIDB.buffbars (edited in Settings -> Buff Bars); every tracked buff that
 -- is currently on the player gets one gold bar (icon + name + seconds) that
--- drains to empty, stacked in one draggable container (RegisterPanel).
+-- drains to empty, stacked in one draggable container (RegisterPanel) and
+-- SORTED by shortest time left first (re-sorted on every aura change).
 --
 -- Buff identification: 1.12 has NO API for a player buff's NAME, so each scan
 -- reads it from a hidden WorldFrame-owned tooltip (SetPlayerBuff -> line 1) --
@@ -97,53 +98,73 @@ HoryUI:RegisterModule("buffbars", true, function()
   end
 
   ----------------------------------------------------------------------------
-  -- scan: match the player's buffs against the tracked names
+  -- scan: match the player's buffs against the tracked names.
+  -- Bars are SORTED by shortest time left first, re-sorted on every scan -- a
+  -- freshly popped buff fires PLAYER_AURAS_CHANGED, so it slots straight into
+  -- its place by remaining time. Because bars are reassigned by sort order,
+  -- the duration-learning state lives in per-NAME tables (durmem/lastexp),
+  -- not on the bar objects.
   ----------------------------------------------------------------------------
+  local durmem, lastexp = {}, {}   -- name -> learned full duration / last expiry
+
   local function Scan()
     if HoryUI.showAll then return end     -- preview owns the bars while unlocked
     local list = HoryUIDB.buffbars
-    local want = {}                       -- name -> tracked-list order (bar slot)
-    for i = 1, getn(list) do want[list[i]] = i end
+    local want = {}
+    for i = 1, getn(list) do want[list[i]] = true end
 
-    -- collect the live tracked buffs: name -> { timeleft, texture }
-    local found = {}
+    -- collect the live tracked buffs
+    local live, ln = {}, 0
     for i = 0, 31 do
       local bid = GetPlayerBuff(i, "HELPFUL")
       if not bid or bid < 0 then break end
       local name = BuffName(bid)
       if name and want[name] then
         local left = GetPlayerBuffTimeLeft(bid) or 0
-        -- same buff twice (rare): keep the longer one
-        if left > 0 and (not found[name] or left > found[name].left) then
-          found[name] = { left = left, tex = GetPlayerBuffTexture(bid) }
+        if left > 0 then
+          -- same buff twice (rare): keep the longer instance
+          local dup
+          for k = 1, ln do if live[k].name == name then dup = live[k] end end
+          if dup then
+            if left > dup.left then dup.left = left; dup.tex = GetPlayerBuffTexture(bid) end
+          else
+            ln = ln + 1
+            live[ln] = { name = name, left = left, tex = GetPlayerBuffTexture(bid) }
+          end
         end
       end
     end
 
-    -- one bar per tracked name, in tracked-list order
-    local slot = 0
-    for i = 1, getn(list) do
-      local name = list[i]
-      local hit = found[name]
-      if hit and slot < MAXBARS then
-        slot = slot + 1
-        local b = bars[slot] or MakeBar(slot)
-        local now = GetTime()
-        local expires = now + hit.left
-        -- a fresh application (new bar, or timeleft jumped up) defines the max
-        if b.name ~= name or not b.expires or expires > b.expires + 1 then
-          b.duration = hit.left
-        end
-        b.name = name
-        b.expires = expires
-        b.icon:SetTexture(hit.tex)
-        b.label:SetText(name)
-        b.bar:SetMinMaxValues(0, b.duration or hit.left)
-        b:Show()
+    table.sort(live, function(a, b) return a.left < b.left end)
+
+    local now = GetTime()
+    local nshow = (ln > MAXBARS) and MAXBARS or ln
+    local shown = {}
+    for i = 1, nshow do
+      local e = live[i]
+      local b = bars[i] or MakeBar(i)
+      local expires = now + e.left
+      shown[e.name] = true
+      -- a fresh application (first sight, or the expiry jumped up) defines the
+      -- full duration; a bar merely reshuffled keeps its learned max
+      if not lastexp[e.name] or expires > lastexp[e.name] + 1 then
+        durmem[e.name] = e.left
       end
+      lastexp[e.name] = expires
+      b.name = e.name
+      b.expires = expires
+      b.lastTxt = nil                     -- force a text repaint after reassign
+      b.icon:SetTexture(e.tex)
+      b.label:SetText(e.name)
+      b.bar:SetMinMaxValues(0, durmem[e.name] or e.left)
+      b:Show()
     end
-    for i = slot + 1, MAXBARS do
+    for i = nshow + 1, MAXBARS do
       if bars[i] then bars[i]:Hide(); bars[i].name = nil end
+    end
+    -- forget expiries of buffs no longer up, so a later re-cast re-learns its max
+    for name in pairs(lastexp) do
+      if not shown[name] then lastexp[name] = nil end
     end
     Relayout()
   end
@@ -153,10 +174,16 @@ HoryUI:RegisterModule("buffbars", true, function()
   -- driver: event-driven scan, per-frame drain (throttled paint)
   ----------------------------------------------------------------------------
   local drv = CreateFrame("Frame")
-  drv.acc = 0
   drv:RegisterEvent("PLAYER_AURAS_CHANGED")
   drv:RegisterEvent("PLAYER_ENTERING_WORLD")
   drv:RegisterEvent("PLAYER_LOGOUT")
+  -- PLAYER_AURAS_CHANGED does NOT fire when an existing buff is REFRESHED in
+  -- place (re-popping Slice and Dice while it runs) -- the recurring
+  -- missing-event bug (CLAUDE.md sec.2), which left the bar draining from the
+  -- stale expiry. Nampower's AURA_CAST_ON_SELF fires on every aura landing on
+  -- the player, refreshes included (auras.lua's timer source). Registration is
+  -- pcall'd so an older Nampower can't abort module load.
+  pcall(function() drv:RegisterEvent("AURA_CAST_ON_SELF") end)
   drv:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
       this:UnregisterAllEvents()
@@ -164,13 +191,21 @@ HoryUI:RegisterModule("buffbars", true, function()
       this:SetScript("OnUpdate", nil)
       return
     end
+    if event == "AURA_CAST_ON_SELF" then
+      -- defer ONE frame: scan after the client has committed the refreshed
+      -- duration (GetPlayerBuffTimeLeft), and coalesce raid-buff bursts into a
+      -- single rescan. One frame still reads as instant.
+      this.rescan = true
+      return
+    end
     Scan()
   end)
 
+  -- UNthrottled drain: SetValue runs every frame so the fill moves smoothly (a
+  -- number set, no allocation); the TEXT only repaints when the displayed
+  -- string actually changes (b.lastTxt), so there's no per-frame string churn.
   drv:SetScript("OnUpdate", function()
-    this.acc = this.acc + arg1
-    if this.acc < 0.05 then return end
-    this.acc = 0
+    if this.rescan then this.rescan = false; Scan() end
     if HoryUI.showAll then return end
     local now = GetTime()
     local died = false
@@ -183,7 +218,11 @@ HoryUI:RegisterModule("buffbars", true, function()
           died = true
         else
           b.bar:SetValue(rem)
-          b.time:SetText(TimeText(rem))
+          local txt = TimeText(rem)
+          if txt ~= b.lastTxt then
+            b.lastTxt = txt
+            b.time:SetText(txt)
+          end
         end
       end
     end
