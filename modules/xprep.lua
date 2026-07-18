@@ -39,6 +39,58 @@ HoryUI:RegisterModule("xprep", true, function()
   label:SetPoint("CENTER", fill, "CENTER", 0, 0)
   label:SetTextColor(C.text[1], C.text[2], C.text[3])
 
+  -- Session XP tracking for the hover estimates (kills / time to level).
+  -- Rate = everything earned since login (PLAYER_XP_UPDATE deltas); the
+  -- per-kill average is parsed from the CHAT_MSG_COMBAT_XP_GAIN
+  -- "X dies, you gain N experience." message, so quest turn-ins and
+  -- exploration XP count toward the hourly rate but never skew kills-to-level.
+  local sessStart = GetTime()
+  local sessXP = 0
+  local killCount, killXPTotal = 0, 0
+  local lastXP, lastXPMax = UnitXP("player"), UnitXPMax("player")
+  local lastLevel = UnitLevel("player")
+
+  local function FmtTime(sec)
+    if sec >= 3600 then
+      return math.floor(sec / 3600) .. "h " .. math.floor(math.mod(sec, 3600) / 60) .. "m"
+    elseif sec >= 60 then
+      return math.floor(sec / 60) .. "m"
+    end
+    return math.floor(sec) .. "s"
+  end
+
+  -- Session reset: a small chip left of the bar that rebases the rate tracking
+  -- (kills / time to level) from "now". Hidden in reputation mode (Update).
+  local resetBtn = HoryUI.CreateButton(line, "R", function()
+    GameTooltip:Hide()
+    HoryUI.Confirm("Reset the session XP tracking?", function()
+      sessStart = GetTime()
+      sessXP = 0
+      killCount, killXPTotal = 0, 0
+      lastXP, lastXPMax, lastLevel = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
+    end, "Reset")
+  end)
+  resetBtn:SetWidth(14)
+  resetBtn:SetHeight(14)
+  resetBtn:SetPoint("RIGHT", line, "LEFT", -2, 0)
+  HoryUI.SetFont(resetBtn.text, HoryUI.font.number, 9, "OUTLINE")
+
+  -- chain the helper's border-highlight OnEnter/OnLeave with a tooltip
+  local resetEnter = resetBtn:GetScript("OnEnter")
+  resetBtn:SetScript("OnEnter", function()
+    if resetEnter then resetEnter() end
+    GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:SetText("Reset session", 1, 1, 1)
+    GameTooltip:AddLine("Restarts the XP-rate tracking (kills / time to level).",
+      C.text2[1], C.text2[2], C.text2[3])
+    GameTooltip:Show()
+  end)
+  local resetLeave = resetBtn:GetScript("OnLeave")
+  resetBtn:SetScript("OnLeave", function()
+    if resetLeave then resetLeave() end
+    GameTooltip:Hide()
+  end)
+
   local function SetText(cur, total)
     if total <= 0 then total = 1 end
     label:SetText(cur .. " / " .. total)
@@ -62,6 +114,7 @@ HoryUI:RegisterModule("xprep", true, function()
         fill:SetValue(cur)
         SetFillColor(C.cast)
         rested:Hide()
+        resetBtn:Hide()
         SetText(cur, total)
         line.tip = name .. ":  " .. cur .. " / " .. total
         return
@@ -75,6 +128,7 @@ HoryUI:RegisterModule("xprep", true, function()
     fill:SetMinMaxValues(0, xpmax)
     fill:SetValue(xp)
     SetFillColor(C.accent)
+    resetBtn:Show()
 
     local exhaustion = GetXPExhaustion and GetXPExhaustion()
     local w = fill:GetWidth()
@@ -180,6 +234,28 @@ HoryUI:RegisterModule("xprep", true, function()
       GameTooltip:AddDoubleLine("To next level", remaining .. "  (" .. Pct(remaining, xpmax) .. "%)",
         t2[1], t2[2], t2[3], 1, 1, 1)
 
+      -- Session-rate estimates: kills-to-level from this session's average kill
+      -- XP, time-to-level from total session XP/hour. Muted until data exists.
+      local elapsed = GetTime() - sessStart
+      GameTooltip:AddLine(" ")
+      if killCount > 0 then
+        GameTooltip:AddDoubleLine("Kills to level",
+          math.ceil(remaining / (killXPTotal / killCount)),
+          t2[1], t2[2], t2[3], 1, 1, 1)
+      else
+        GameTooltip:AddDoubleLine("Kills to level", "no kills yet", t2[1], t2[2], t2[3], 0.7, 0.7, 0.7)
+      end
+      if sessXP > 0 and elapsed > 0 then
+        local perHour = sessXP / elapsed * 3600
+        GameTooltip:AddDoubleLine("Time to level", FmtTime(remaining / (sessXP / elapsed)),
+          t2[1], t2[2], t2[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("Session",
+          HoryUI.Comma(sessXP) .. " xp  (" .. HoryUI.Comma(math.floor(perHour + 0.5)) .. "/h)",
+          t2[1], t2[2], t2[3], 1, 1, 1)
+      else
+        GameTooltip:AddDoubleLine("Time to level", "no xp this session", t2[1], t2[2], t2[3], 0.7, 0.7, 0.7)
+      end
+
       -- Rested: GetXPExhaustion returns the bonus pool, nil/0 when not rested.
       local exhaustion = GetXPExhaustion and GetXPExhaustion()
       local resting = IsResting and IsResting()
@@ -210,12 +286,39 @@ HoryUI:RegisterModule("xprep", true, function()
   ev:RegisterEvent("PLAYER_LEVEL_UP")
   ev:RegisterEvent("UPDATE_FACTION")
   ev:RegisterEvent("UPDATE_EXHAUSTION")
+  ev:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
   ev:RegisterEvent("PLAYER_LOGOUT")
   ev:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
       this:UnregisterAllEvents()
       this:SetScript("OnEvent", nil)
       return
+    end
+    if event == "CHAT_MSG_COMBAT_XP_GAIN" then
+      -- Kill XP only: "Wolf dies, you gain 55 experience." (the rested-bonus
+      -- variant is a suffix, so the same pattern matches it). Quest XP uses the
+      -- unnamed "You gain N experience." and deliberately doesn't match.
+      local _, _, kxp = string.find(arg1 or "", "dies, you gain (%d+) experience")
+      if kxp then
+        killCount = killCount + 1
+        killXPTotal = killXPTotal + tonumber(kxp)
+      end
+      return
+    end
+    if event == "PLAYER_XP_UPDATE" then
+      local xp, xpmax, lvl = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
+      local delta
+      if lvl > lastLevel then
+        -- crossed a level: what was left of the old bar + the new bar's fill
+        delta = (lastXPMax - lastXP) + xp
+      else
+        delta = xp - lastXP
+      end
+      if delta > 0 then sessXP = sessXP + delta end
+      lastXP, lastXPMax, lastLevel = xp, xpmax, lvl
+    elseif event == "PLAYER_ENTERING_WORLD" then
+      -- re-sync the baseline; a zone-in must never count as gained XP
+      lastXP, lastXPMax, lastLevel = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
     end
     Update()
   end)

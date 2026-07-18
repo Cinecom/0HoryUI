@@ -764,9 +764,15 @@ HoryUI:RegisterModule("unitframes", true, function()
     end
   end
 
-  -- click: right-click menu / left re-selects (keeps the frame "live")
+  -- click: right-click menu / left re-selects (keeps the frame "live");
+  -- a cursor item dropped on the frame trades it to the target -- the native
+  -- world-drop path, opens trade with the item placed (pfUI's technique)
   target:SetScript("OnMouseUp", function()
     if arg1 == "LeftButton" then
+      if CursorHasItem() then
+        DropItemOnUnit("target")
+        return
+      end
       TargetUnit("target")
     elseif arg1 == "RightButton" and TargetFrameDropDown then
       ToggleDropDownMenu(1, nil, TargetFrameDropDown, "cursor")

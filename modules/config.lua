@@ -322,6 +322,7 @@ HoryUI:RegisterModule("config", true, function()
     { id = "minimap",      name = "Minimap" },
     { id = "bags",         name = "Bags (one-bag)" },
     { id = "buffbars",     name = "Buff Bars (tracked buffs)" },
+    { id = "clock",        name = "Clock (server + local)" },
   }
 
   local modList = HoryUI.CreateScrollFrame(win, 278, 11, 23)

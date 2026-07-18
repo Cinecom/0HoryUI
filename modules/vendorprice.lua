@@ -27,6 +27,11 @@ HoryUI:RegisterModule("vendorprice", true, function()
   local function AddSell(tt, link, count)
     if not link then return end
     if MerchantFrame and MerchantFrame:IsShown() then return end
+    -- item data not in the client cache yet: the native Set* produced ZERO lines
+    -- (name/stats arrive from the server on first query). Don't decorate the empty
+    -- tooltip -- a floating coin-row-only tooltip reads as broken; the row appears
+    -- on the next hover once the item is cached.
+    if tt:NumLines() == 0 then return end
     local _, _, id = strfind(link, "item:(%d+):")
     id = id and tonumber(id)
     local data = id and sellData[id]

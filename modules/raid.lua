@@ -144,10 +144,18 @@ HoryUI:RegisterModule("raid", true, function()
       f.name:SetJustifyH("LEFT")
       f.name:SetTextColor(1, 1, 1, 1)
 
-      -- left-click to target (mouse only reaches the frame while locked)
+      -- left-click to target; a cursor item dropped on the cell trades it to
+      -- that member (DropItemOnUnit -- the native world-drop path). Mouse only
+      -- reaches the frame while locked.
       f:EnableMouse(true)
       f:SetScript("OnMouseUp", function()
-        if arg1 == "LeftButton" then TargetUnit(this.unit) end
+        if arg1 == "LeftButton" then
+          if CursorHasItem() then
+            DropItemOnUnit(this.unit)
+            return
+          end
+          TargetUnit(this.unit)
+        end
       end)
 
       -- hover border: a border-only overlay (no fill) on a higher strata, so the
@@ -173,26 +181,53 @@ HoryUI:RegisterModule("raid", true, function()
         if this.hl then this.hl:Hide() end
       end)
 
-      -- debuff icons (overlay row, right -> left), polled (no UNIT_AURA in 1.12)
+      -- debuff icons (overlay row, right -> left), polled (no UNIT_AURA in
+      -- 1.12). Each icon is a small MOUSE-ENABLED frame so hovering it shows
+      -- the debuff's tooltip (SetUnitDebuff with the index stored at paint
+      -- time) and lights the cell highlight; hidden icons don't capture the
+      -- mouse. (A shown icon eats clicks on those ~10px of the cell -- the
+      -- price of hoverable debuffs.)
       local dh = CreateFrame("Frame", nil, f)
       dh:SetAllPoints(f)
       dh:SetFrameLevel(f:GetFrameLevel() + 5)
       f.debuffs = {}
       for k = 1, RDMAX do
-        local d = {}
-        d.tex = dh:CreateTexture(nil, "ARTWORK")
-        d.tex:SetWidth(RDSIZE); d.tex:SetHeight(RDSIZE)
-        d.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        local d = CreateFrame("Frame", nil, dh)
+        d:SetWidth(RDSIZE); d:SetHeight(RDSIZE)
+        d:EnableMouse(true)
+        d.owner = f
+        d.unit = f.unit
         if k == 1 then
-          d.tex:SetPoint("RIGHT", f, "RIGHT", -1, 0)
+          d:SetPoint("RIGHT", f, "RIGHT", -1, 0)
         else
-          d.tex:SetPoint("RIGHT", f.debuffs[k - 1].tex, "LEFT", -1, 0)
+          d:SetPoint("RIGHT", f.debuffs[k - 1], "LEFT", -1, 0)
         end
-        d.count = dh:CreateFontString(nil, "OVERLAY")
+        d.tex = d:CreateTexture(nil, "ARTWORK")
+        d.tex:SetAllPoints(d)
+        d.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        d.count = d:CreateFontString(nil, "OVERLAY")
         HoryUI.SetFont(d.count, HoryUI.font.number, 7, "OUTLINE")
-        d.count:SetPoint("BOTTOMRIGHT", d.tex, "BOTTOMRIGHT", 0, 0)
+        d.count:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", 0, 0)
         d.count:SetTextColor(C.text[1], C.text[2], C.text[3])
-        d.tex:Hide()
+        d:SetScript("OnEnter", function()
+          if this.owner then
+            this.owner.mouse = true
+            if this.owner.hl then this.owner.hl:Show() end
+          end
+          if this.index then
+            GameTooltip:SetOwner(this, "ANCHOR_BOTTOMRIGHT")
+            GameTooltip:SetUnitDebuff(this.unit, this.index)
+            GameTooltip:Show()
+          end
+        end)
+        d:SetScript("OnLeave", function()
+          if this.owner then
+            this.owner.mouse = false
+            if this.owner.hl then this.owner.hl:Hide() end
+          end
+          GameTooltip:Hide()
+        end)
+        d:Hide()
         f.debuffs[k] = d
       end
 
@@ -280,14 +315,16 @@ HoryUI:RegisterModule("raid", true, function()
         if not tex then break end          -- debuffs are contiguous from 1
         di = di + 1
         local d = f.debuffs[di]
-        d.tex:SetTexture(tex); d.tex:Show()
+        d.tex:SetTexture(tex)
+        d.index = i                        -- hover: SetUnitDebuff(unit, index)
+        d:Show()
         if stacks and stacks > 1 then d.count:SetText(stacks); d.count:Show()
         else d.count:Hide() end
         i = i + 1
       end
     end
     for k = di + 1, RDMAX do
-      f.debuffs[k].tex:Hide(); f.debuffs[k].count:Hide()
+      f.debuffs[k]:Hide(); f.debuffs[k].index = nil
     end
   end
 

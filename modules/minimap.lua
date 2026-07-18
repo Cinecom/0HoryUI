@@ -119,7 +119,8 @@ HoryUI:RegisterModule("minimap", true, function()
   -- =========================================================================
   -- 3b. left-border icon column ---------------------------------------------
   -- Blizzard's mail + profession-tracking (Find Herbs / Find Minerals / ...)
-  -- buttons get a fixed square home flush against the minimap's LEFT edge,
+  -- + battleground-queue buttons get a fixed square home flush against the
+  -- minimap's LEFT edge,
   -- instead of being swept into the tray. The native art is round, so we
   -- HIDE the native icon and rebuild it as a crisp square: our own texture,
   -- fed the same image the native icon carries (the tracking icon changes
@@ -128,10 +129,23 @@ HoryUI:RegisterModule("minimap", true, function()
   -- =========================================================================
   local SIDE = 18                    -- square cell edge for a side icon (small)
   local sideOrder = {                -- top-to-bottom; tracking is always shown,
-    { frame = "MiniMapTrackingFrame", icon = "MiniMapTrackingIcon" },
-    { frame = "MiniMapMailFrame",     icon = "MiniMapMailIcon"     },  -- mail only when present
+    { frame = "MiniMapTrackingFrame",    icon = "MiniMapTrackingIcon"    },
+    { frame = "MiniMapMailFrame",        icon = "MiniMapMailIcon"        },  -- mail only when present
+    -- BG queue only while queued; the native art is a small round emblem, so
+    -- instead of mirroring it the square gets a fixed faction-banner icon
+    -- (pfUI's data maps INV_BannerPVP_01 = Horde flag, _02 = Alliance flag)
+    { frame = "MiniMapBattlefieldFrame", icon = "MiniMapBattlefieldIcon",
+      tex = (UnitFactionGroup("player") == "Horde")
+            and "Interface\\Icons\\INV_BannerPVP_01"
+            or  "Interface\\Icons\\INV_BannerPVP_02" },
   }
   local sideCells = {}
+
+  -- hidden holder for side frames whose native frame is currently hidden:
+  -- Blizzard Show()ing one (BG queue join, mail arriving) can then never flash
+  -- it at its stock minimap anchor before the next scan seats it in the column
+  local sidePark = CreateFrame("Frame", nil, holder)
+  sidePark:Hide()
 
   -- wipe every native texture off a side button (the gold border ring is on the
   -- ARTWORK layer -- pfUI's tracking skin uses the same DisableDrawLayer trick;
@@ -153,7 +167,15 @@ HoryUI:RegisterModule("minimap", true, function()
     for i = 1, getn(sideOrder) do
       local def = sideOrder[i]
       local f = getglobal(def.frame)
-      if f and f:IsShown() then
+      if f and not f:IsShown() then
+        -- park it while hidden (anchored inside the hidden holder), so a later
+        -- Show() renders nothing until this pass seats it in the column
+        if f:GetParent() ~= sidePark then
+          f:SetParent(sidePark)
+          f:ClearAllPoints()
+          f:SetPoint("TOPLEFT", sidePark, "TOPLEFT", 0, 0)
+        end
+      elseif f then
         slot = slot + 1
         local cell = sideCells[slot]
         if not cell then
@@ -169,15 +191,22 @@ HoryUI:RegisterModule("minimap", true, function()
           sideCells[slot] = cell
         end
         cell:ClearAllPoints()
-        cell:SetPoint("TOPRIGHT", holder, "TOPLEFT", -3, -(slot - 1) * (SIDE + GAP))
+        -- start 8px below the minimap top so the column clears the XP bar's
+        -- session-reset chip (it hangs left of the bar, above this corner)
+        cell:SetPoint("TOPRIGHT", holder, "TOPLEFT", -3, -8 - (slot - 1) * (SIDE + GAP))
         cell:Show()
 
-        -- rebuild: read the native icon's image into our square, then strip ALL
-        -- native art (border ring included) so only the crisp square shows
-        local nat = getglobal(def.icon)
-        if nat then
-          local tex = nat:GetTexture()
-          if tex then cell.icon:SetTexture(tex) end
+        -- rebuild: read the native icon's image into our square (or the def's
+        -- fixed replacement), then strip ALL native art (border ring included)
+        -- so only the crisp square shows
+        if def.tex then
+          cell.icon:SetTexture(def.tex)
+        else
+          local nat = getglobal(def.icon)
+          if nat then
+            local tex = nat:GetTexture()
+            if tex then cell.icon:SetTexture(tex) end
+          end
         end
         StripNativeArt(f)
 
@@ -294,6 +323,20 @@ HoryUI:RegisterModule("minimap", true, function()
       if b:GetParent() ~= h then
         b:SetParent(h)
         b:SetFrameLevel(h:GetFrameLevel() + 1)
+        -- a wrapper-style entry (AtlasLoot) keeps its real Button as a CHILD of
+        -- the collected mouse-enabled frame; after the SetFrameLevel above the
+        -- scriptless wrapper can sit level-tied on top of its own button and eat
+        -- the mouse (AtlasLoot was left a 1px live strip where its 33px button
+        -- hangs past the 32px wrapper). Re-assert MOUSE-ENABLED children above
+        -- their wrapper -- only those (a blanket raise lifted horyBtn's own
+        -- CreateBackdrop child over its icon, darkening it).
+        local kids = { b:GetChildren() }
+        for ci = 1, getn(kids) do
+          local kid = kids[ci]
+          if kid and kid.IsMouseEnabled and kid:IsMouseEnabled() then
+            kid:SetFrameLevel(b:GetFrameLevel() + 1)
+          end
+        end
       end
       b:SetScale(s)
       b:ClearAllPoints()
@@ -337,13 +380,20 @@ HoryUI:RegisterModule("minimap", true, function()
   -- =========================================================================
   local driver = CreateFrame("Frame")
   driver:RegisterEvent("PLAYER_LOGOUT")
+  -- side-column state changes rescan IMMEDIATELY (the parked frame would
+  -- otherwise stay invisible until the next heartbeat)
+  driver:RegisterEvent("UPDATE_BATTLEFIELD_STATUS")   -- BG queue join/leave/pop
+  driver:RegisterEvent("UPDATE_PENDING_MAIL")         -- mail arriving/taken
+  driver:RegisterEvent("MINIMAP_UPDATE_TRACKING")     -- tracking spell change
   driver.t = 0; driver.acc = 0
   driver:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" then
       this:UnregisterAllEvents()
       this:SetScript("OnEvent", nil)
       this:SetScript("OnUpdate", nil)
+      return
     end
+    scan()
   end)
   driver:SetScript("OnUpdate", function()
     driver.t = driver.t + arg1

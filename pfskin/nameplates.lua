@@ -118,6 +118,7 @@ pfSkin:RegisterModule("nameplates", "vanilla", function ()
     -- slider: debuffs sit ABOVE the plate, and the health bar is shorter.
     C.nameplates.debuffs.position = "TOP"
     C.nameplates.heighthealth = "6"
+    C.nameplates.debuffsize = "18"     -- default 14; bigger debuff icons above the plate
 
     cfg.showcastbar = C.nameplates["showcastbar"] == "1"
     cfg.targetcastbar = C.nameplates["targetcastbar"] == "1"

@@ -293,7 +293,8 @@ local combopointAbilities = {
 
   -- Rogue
   ["Rupture"]      = { base = 6,  perCP = 2 },
-  ["Kidney Shot"]  = { base = 1,  perCP = 1 },
+  -- Kidney Shot's base second exists only on Rank 2: R1 stuns cp*1s (1-5s), R2 is 1+cp (2-6s)
+  ["Kidney Shot"]  = { base = 1,  perCP = 1, baseByRank = { [1] = 0, [2] = 1 } },
   ["Slice and Dice"] = { base = 9, perCP = 3 },
   ["Expose Armor"] = { base = 30, perCP = 0 },  -- fixed 30s
 }
@@ -309,11 +310,16 @@ local function IsComboPointAbility(spellName)
 end
 
 -- Get combo-point spell data (base duration and per-CP bonus)
-local function GetComboPointData(spellName)
+-- rank is optional: a spell with a baseByRank table resolves its base by it (unknown rank -> cpData.base)
+local function GetComboPointData(spellName, rank)
   if not spellName then return nil, nil end
   local cpData = combopointAbilities[spellName]
   if cpData then
-    return cpData.base, cpData.perCP
+    local base = cpData.base
+    if cpData.baseByRank and rank and cpData.baseByRank[rank] then
+      base = cpData.baseByRank[rank]
+    end
+    return base, cpData.perCP
   end
   return nil, nil
 end
@@ -1577,7 +1583,7 @@ if hasNampower then
         if isOurs then
           -- OWN casts: use captured CPs from SPELL_CAST_EVENT (if available)
           local cp = capturedCP or 0
-          local base, perCP = GetComboPointData(spellName)
+          local base, perCP = GetComboPointData(spellName, rankNum)
           if base and perCP then
             duration = base + cp * perCP
           else

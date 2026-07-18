@@ -439,6 +439,144 @@ HoryUI:RegisterModule("bags", true, function()
   -- =========================================================================
   -- (PaintQuality is forward-declared up top so ClearHighlight can call it)
 
+  -- ◆ auto pick-lock helpers -------------------------------------------------
+  -- A still-locked lockbox/junkbox shows the red "Locked" line in its tooltip;
+  -- read it from a hidden WorldFrame tooltip (SetBagItem -- the durability
+  -- technique). Tooltip-based detection covers EVERY lockable box with no name
+  -- DB, and stops matching the moment the box is unlocked (so the normal open
+  -- click passes through). This is the ITEM's locked state, not the transient
+  -- slot lock GetContainerItemInfo reports during a transaction.
+  local lockscan
+  local function IsLockedBox(b, s)
+    if not lockscan then
+      lockscan = CreateFrame("GameTooltip", "HoryUIBagLockScan", WorldFrame, "GameTooltipTemplate")
+    end
+    lockscan:SetOwner(WorldFrame, "ANCHOR_NONE")
+    lockscan:SetBagItem(b, s)
+    local want = LOCKED or "Locked"
+    for i = 2, lockscan:NumLines() do
+      local fs = getglobal("HoryUIBagLockScanTextLeft" .. i)
+      if fs and fs:GetText() == want then return true end
+    end
+    return false
+  end
+
+  -- scanned per locked-box click (rare), not cached -- so learning Pick Lock
+  -- mid-session is picked up without a SPELLS_CHANGED listener
+  local function KnowsPickLock()
+    local i = 1
+    while true do
+      local name = GetSpellName(i, "spell")
+      if not name then return false end
+      if name == "Pick Lock" then return true end
+      i = i + 1
+    end
+  end
+
+  -- ◆ SHIFT+right-click = pick the lock but keep the box UNOPENED. SuperWoW's
+  -- DLL-level autoloot empties a box the instant its loot window opens --
+  -- before any Lua LOOT_OPENED handler runs -- so closing the window after
+  -- the fact is too late: autoloot is switched off BEFORE the cast lands.
+  -- SetAutoloot() with NO args returns the current 0/1 (pfUI's superwow.lua
+  -- GetAutoloot relies on exactly this), so the prior state is saved and
+  -- restored once the loot window has closed. The window itself is closed
+  -- the moment it opens (closing without taking leaves the contents inside,
+  -- so the box stays lootable later).
+  --
+  -- The guard is BRACKETED TO THE PICK LOCK CAST (SPELLCAST_START/STOP track
+  -- the phase), because ending it on any stray event re-enables autoloot
+  -- before the slow lockbox cast finishes and the box auto-opens -- the DLL
+  -- then empties it (junkboxes resolve fast enough to dodge this; lockboxes
+  -- didn't). Concretely: an unrelated SPELLCAST_FAILED mid-cast (e.g. an
+  -- impatient second right-click on the same box = "Another action is in
+  -- progress") must NOT end the guard, and neither may the LOOT_CLOSED of a
+  -- window that was already open at click time -- only the close of a loot
+  -- window seen opening WHILE armed counts. A FAILED before the cast ever
+  -- starts (skill too low) and an INTERRUPTED of the running cast do end it,
+  -- and the 10s watchdog backstops everything, so autoloot can never get
+  -- stuck off; without SuperWoW it still closes the window so the box stays
+  -- shut.
+  local pickShut = CreateFrame("Frame", nil, UIParent)
+  pickShut:Hide()
+  pickShut.t = 0
+  local function PickShutEnd()
+    pickShut:UnregisterAllEvents()
+    pickShut:Hide()
+    pickShut.phase = nil
+    pickShut.lootSeen = nil
+    if pickShut.prev ~= nil then
+      SetAutoloot(pickShut.prev)
+      pickShut.prev = nil
+    end
+    -- un-park SuperAPI's enforcement (it re-asserts the user's mode next frame)
+    if pickShut.superapi then
+      SuperAPI.frame:SetScript("OnUpdate", pickShut.superapi)
+      pickShut.superapi = nil
+    end
+  end
+  local function PickShutBegin()
+    -- SuperAPI's "Shift to toggle on/off" autoloot modes ENFORCE the DLL state
+    -- with a per-frame OnUpdate on SuperAPI.frame -- it overwrites our
+    -- SetAutoloot(0) one frame later (and shift is long released when the 5s
+    -- cast completes). Park that script for the suppression window; PickShutEnd
+    -- restores it and it re-asserts the user's mode on the next frame.
+    if SuperAPI and SuperAPI.frame then
+      local enforce = SuperAPI.frame:GetScript("OnUpdate")
+      if enforce then
+        pickShut.superapi = enforce
+        SuperAPI.frame:SetScript("OnUpdate", nil)
+      end
+    end
+    if SetAutoloot then
+      -- re-arming while already armed (a second box picked inside the first
+      -- box's window) must not clobber the REAL saved state with our own 0
+      if pickShut.prev == nil then
+        pickShut.prev = SetAutoloot() -- no-arg = current 0/1 (pfUI-verified)
+      end
+      SetAutoloot(0)
+    end
+    pickShut.t = 0
+    pickShut.phase = "pending"        -- cast requested; no START/STOP seen yet
+    pickShut.lootSeen = nil
+    pickShut:RegisterEvent("LOOT_OPENED")
+    pickShut:RegisterEvent("LOOT_CLOSED")
+    pickShut:RegisterEvent("SPELLCAST_START")
+    pickShut:RegisterEvent("SPELLCAST_STOP")
+    pickShut:RegisterEvent("SPELLCAST_FAILED")
+    pickShut:RegisterEvent("SPELLCAST_INTERRUPTED")
+    pickShut:RegisterEvent("PLAYER_LOGOUT")
+    pickShut:Show()
+  end
+  pickShut:SetScript("OnEvent", function()
+    if event == "LOOT_OPENED" then
+      pickShut.lootSeen = true
+      CloseLoot()                -- contents stay inside the box
+    elseif event == "LOOT_CLOSED" then
+      -- only the close of the window WE saw open ends the guard; a stray
+      -- close (a loot window already open at click time) must not
+      if pickShut.lootSeen then PickShutEnd() end
+    elseif event == "SPELLCAST_START" then
+      if arg1 == "Pick Lock" then pickShut.phase = "casting" end
+    elseif event == "SPELLCAST_STOP" then
+      -- the pick finished: the box is about to auto-open -- HOLD the guard.
+      -- (An instant pick fires STOP with no START, so promote from any phase.)
+      pickShut.phase = "done"
+    elseif event == "SPELLCAST_FAILED" then
+      -- ours only if the cast never started; mid-cast a FAILED is some OTHER
+      -- action (e.g. a second click on the box) and must not end the guard
+      if pickShut.phase == "pending" then PickShutEnd() end
+    elseif event == "SPELLCAST_INTERRUPTED" then
+      -- only the running pick can be interrupted; after "done" it's unrelated
+      if pickShut.phase == "casting" then PickShutEnd() end
+    else                         -- PLAYER_LOGOUT
+      PickShutEnd()
+    end
+  end)
+  pickShut:SetScript("OnUpdate", function()
+    pickShut.t = pickShut.t + arg1
+    if pickShut.t > 10 then PickShutEnd() end
+  end)
+
   local function MakeSlot(b, s)
     local name = "HoryUIBagItem" .. (b == KEYRING and "K" or b) .. "_" .. s
     local btn = CreateFrame("Button", name, holders[b], "ContainerFrameItemButtonTemplate")
@@ -476,18 +614,39 @@ HoryUI:RegisterModule("bags", true, function()
     -- highlight glow, so we leave them untouched. (A garnet border-flash on hover used
     -- to live here, but it collided with the item-quality border -- removed.)
 
-    -- merchant sell-race guard: a right-click on an already-locked slot (a sell
-    -- still in flight) sends a duplicate sell the server drops WITHOUT replying,
-    -- and the slot then stays locked until a full client restart. Swallow exactly
-    -- that click -- locked is read at click time, so this closes the window the
-    -- throttled grey-out repaint used to leave open. Clicks with an item on the
-    -- cursor pass through (clicking the locked source slot puts a pickup back).
+    -- chained right-click handler, two guards in priority order:
+    -- (1) merchant sell-race guard: a right-click on an already-locked slot (a
+    --     sell still in flight) sends a duplicate sell the server drops WITHOUT
+    --     replying, and the slot then stays locked until a full client restart.
+    --     Swallow exactly that click -- locked is read at click time, closing
+    --     the window the throttled grey-out repaint used to leave open.
+    -- (2) ◆ auto pick-lock: right-clicking a still-LOCKED lockbox/junkbox casts
+    --     Pick Lock and targets this slot (PickupContainerItem while
+    --     SpellIsTargeting -- poisonapply's verified item-target technique), so
+    --     ONE right-click opens it instead of "Item is locked". Skipped at a
+    --     merchant (right-click keeps selling), while already spell-targeting
+    --     (that click should target), and without Pick Lock known; if the cast
+    --     doesn't reach targeting (cooldown/error) the click is simply eaten
+    --     and the game's own error shows. SHIFT+right-click picks the lock
+    --     but keeps the box unopened (pickShut above suppresses SuperWoW's
+    --     autoloot + closes the loot window).
+    -- Clicks with an item on the cursor always pass through (clicking the
+    -- locked source slot puts a pickup back).
     local origClick = btn:GetScript("OnClick")
     btn:SetScript("OnClick", function()
-      if arg1 == "RightButton" and not CursorHasItem()
-          and MerchantFrame and MerchantFrame:IsShown() then
-        local _, _, locked = GetContainerItemInfo(b, s)
-        if locked then return end
+      if arg1 == "RightButton" and not CursorHasItem() then
+        if MerchantFrame and MerchantFrame:IsShown() then
+          local _, _, locked = GetContainerItemInfo(b, s)
+          if locked then return end
+        elseif not SpellIsTargeting() and IsLockedBox(b, s) and KnowsPickLock() then
+          local keepShut = IsShiftKeyDown()    -- ◆ shift = pick only, stay unopened
+          CastSpellByName("Pick Lock")
+          if SpellIsTargeting() then
+            PickupContainerItem(b, s)          -- targets the box, not a pickup
+            if keepShut then PickShutBegin() end
+          end
+          return
+        end
       end
       if origClick then origClick() end
     end)

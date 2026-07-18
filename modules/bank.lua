@@ -487,6 +487,14 @@ HoryUI:RegisterModule("bank", true, function()
         GameTooltip:Show()
       end)
       btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+      -- This client's ContainerFrame.lua (unlike stock 1.12) re-fires the GLOBAL
+      -- ContainerFrameItemButton_OnEnter from the template's OnUpdate every 0.2s
+      -- while the tooltip is owned by the button -- and that global calls
+      -- SetBagItem(-1, slot), the exact call that comes up empty for the bank
+      -- container. So our OnEnter built the correct tooltip and 0.2s later it was
+      -- wiped to an empty one (only addon-appended rows survived). The template's
+      -- OnUpdate does nothing else on this client; drop it for base-bank buttons.
+      btn:SetScript("OnUpdate", nil)
     end
 
     return btn
